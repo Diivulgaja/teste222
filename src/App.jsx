@@ -1,1424 +1,878 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { ShoppingCart, Utensils, IceCream, Plus, Minus, X, Home, ChevronRight, Ban, MapPin, Truck, Clock, CreditCard, DollarSign, Zap, Loader2, Cake, Pizza, Heart, Cookie, Sunrise, Camera, Instagram, Copy } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
+// src/App.jsx
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import {
+  ShoppingCart, Plus, Minus, X, Home, ChevronRight, Truck, MapPin,
+  Loader2, Cake, Heart
+} from "lucide-react";
 
-// Função para enviar pedido ao PHP (MySQL)
-const sendOrderToBackend = async (cartItems, customer, total) => {
-    try {
-        const response = await fetch("https://SEUSITE.com/salvar_pedido.php", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                itens: cartItems,
-                cliente: customer,
-                total: total
-            })
-        });
+import { db, auth } from "./firebase";
+import {
+  collection, addDoc, serverTimestamp, doc, setDoc, onSnapshot,
+  getDoc
+} from "firebase/firestore";
+import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 
-        const result = await response.text();
-        console.log("Resposta do servidor:", result);
-        return true;
-    } catch (error) {
-        console.error("Erro ao enviar pedido:", error);
-        alert("Erro ao enviar o pedido. Tente novamente.");
-        return false;
-    }
-};
-
-// --- CONFIGURAÇÃO FIREBASE ---
-// Variáveis globais fornecidas pelo ambiente
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-// Usamos um objeto vazio como fallback seguro
-const firebaseConfig = {
-  apiKey: "AIzaSyDI4Vt_wWDoorQjroBSMav-yCGlhtoiHjY",
-  authDomain: "doce-e-ser-de1f6.firebaseapp.com",
-  databaseURL: "https://doce-e-ser-de1f6-default-rtdb.firebaseio.com",
-  projectId: "doce-e-ser-de1f6",
-  storageBucket: "doce-e-ser-de1f6.firebasestorage.app",
-  messagingSenderId: "1021515521250",
-  appId: "1:1021515521250:web:c07acb32b18bec05d512bb",
-};
-
-
-
-let db = null;
-let auth = null;
-
-// Inicializa o Firebase (se as configs existirem)
-if (Object.keys(firebaseConfig).length > 0) {
-    const app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-    auth = getAuth(app);
-}
+/* ------------- Constants & Data ------------- */
+const COLLECTION_ORDERS = "doceeser_pedidos";
+const COLLECTION_CARTS = "carts";
+const DELIVERY_FEE = 2.99;
+const ACAI_ID = 18;
+const ACAI_BASE_PRICE = 17.9;
+const ETA_TEXT = "20–35 min"; // tempo estimado fornecido
 
 // --- DADOS ADICIONAIS AÇAÍ ---
 const ACAI_TOPPINGS = [
-    { name: "Banana", price: 0.01 },
-    { name: "Morango", price: 2.00 },
-    { name: "Leite Ninho", price: 1.00 },
-    { name: "Leite Condensado", price: 0.01 },
-    { name: "Creme de Ninho", price: 1.00 },
-    { name: "Nutella", price: 3.00 },
-    { name: "Amendoim", price: 1.00 },
+  { name: "Banana", price: 0.01 },
+  { name: "Morango", price: 2.00 },
+  { name: "Leite Ninho", price: 1.00 },
+  { name: "Leite Condensado", price: 0.01 },
+  { name: "Creme de Ninho", price: 1.00 },
+  { name: "Nutella", price: 3.00 },
+  { name: "Amendoim", price: 1.00 },
 ];
-// Base price for 250ml Açaí (ID 18)
-const ACAI_ID = 18;
-const ACAI_BASE_PRICE = 17.90; 
 
-// --- DADOS MOCK (PRODUTOS ATUALIZADOS) ---
+// ID e preço base do açaí
+const ACAI_ID = 18;
+const ACAI_BASE_PRICE = 17.90;
+
+// --- LISTA COMPLETA DE PRODUTOS ---
 const initialProducts = [
   // Categoria BOLOS
-  { 
-    id: 9, 
-    name: "Red velvet com Ninho e Morangos", 
-    price: 15.90, 
-    category: 'bolos', 
-    description: "Massa aveludada e macia, coberta com creme de leite Ninho cremoso e morangos fresquinhos no topo. Uma combinação elegante.", 
-    imageUrl: "https://i.imgur.com/3UDWhLR.png" 
+  {
+    id: 9,
+    name: "Red velvet com Ninho e Morangos",
+    price: 15.90,
+    category: 'bolos',
+    description: "Massa aveludada e macia, coberta com creme de leite Ninho cremoso e morangos fresquinhos no topo. Uma combinação elegante.",
+    imageUrl: "https://i.imgur.com/3UDWhLR.png"
   },
-  { 
-    id: 2, 
-    name: "Bolo Cenoura com chocolate", 
-    price: 15.90, 
-    category: 'bolos', 
-    description: "Mini vulcão de cenoura: uma massa fofinha e úmida de bolo de cenoura, recheada com explosão de calda cremosa de chocolate que transborda a cada mordida. Um clássico em versão irresistível e perfeita para se deliciar sem culpa!", 
-    imageUrl: "https://i.imgur.com/aaUdL2b.png" 
+  {
+    id: 2,
+    name: "Bolo Cenoura com chocolate",
+    price: 15.90,
+    category: 'bolos',
+    description: "Mini vulcão de cenoura: uma massa fofinha e úmida de bolo de cenoura, recheada com explosão de calda cremosa de chocolate.",
+    imageUrl: "https://i.imgur.com/aaUdL2b.png"
   },
   {
     id: 10,
     name: "Chocolate com Morangos",
     price: 15.90,
-    category: 'bolos', 
-    description: "Mini vulcão de chocolate: bolo fofinho e úmido de massa de chocolate, coberto com calda cremosa de chocolate 50% recheado e finalizado com morangos fresquinhos que trazem o toque perfeito de frescor e sabor. Uma combinação clássica e irresistível!",
+    category: 'bolos',
+    description: "Bolo fofinho de chocolate, cobertura cremosa 50% e morangos fresquinhos.",
     imageUrl: "https://i.imgur.com/MMbQohl.png"
   },
   {
     id: 13,
     name: "Chocolatudo!!!",
-    price: 15.90, 
-    category: 'bolos', 
-    description: "Delicioso bolo de chocolate fofinho, coberto com uma cremosa calda de chocolate 50% cacau e finalizado com generosos granulados. Uma explosão de sabor intenso e equilibrado para os verdadeiros amantes de chocolate!",
+    price: 15.90,
+    category: 'bolos',
+    description: "Bolo chocolatudo com creme de chocolate 50% e granulados.",
     imageUrl: "https://i.imgur.com/3Hva4Df.png"
   },
   {
     id: 16,
     name: "Bolo de Ferreiro com Nutella",
-    price: 16.90, 
+    price: 16.90,
     category: 'bolos',
-    description: "Bolo Vulcão de Chocolate com Amendoim e Nutella. Massa macia e chocolatuda com pedacinhos crocantes de amendoim. Coberto com chocolate 50% intenso, finalizado com Nutella cremosa e amendoim torrado por cima.",
+    description: "Bolo de chocolate com amendoim, Nutella e chocolate 50%.",
     imageUrl: "https://i.imgur.com/OamNqov.png"
   },
-  
+
   // Categoria COPO DA FELICIDADE
   {
-    id: 17, 
+    id: 17,
     name: "Copo Oreo com Nutella",
-    price: 24.90, 
+    price: 24.90,
     category: 'copo_felicidade',
-    description: "Primeira camada de creme de Ninho bem cremoso, seguida de biscoitos Oreo crocantes. Depois, uma camada generosa de chocolate 50%, finalizando com Nutella e mais Oreo por cima. Uma combinação que conquista no olhar... e vicia no sabor!",
+    description: "Camadas de creme de Ninho, Oreo e Nutella.",
     imageUrl: "https://i.imgur.com/1EZRMVl.png"
   },
   {
-    id: 24, 
+    id: 24,
     name: "Copo Maracujá com Brownie",
-    price: 24.90, 
+    price: 24.90,
     category: 'copo_felicidade',
-    description: "Camadas de creme de maracujá bem cremoso, seguidas de chocolate 50% e pedaços de brownie macio. Depois, mais uma sequência irresistível de creme de maracujá e chocolate 50%, tudo finalizado com chantilly leve para completar essa explosão de sabor!",
+    description: "Creme de maracujá, chocolate 50% e pedaços de brownie.",
     imageUrl: "https://i.imgur.com/PypEwAz.png"
   },
   {
-    id: 25, 
-    name: "Copo Brawnie Dois Amores",
-    price: 22.90, 
+    id: 25,
+    name: "Copo Brownie Dois Amores",
+    price: 22.90,
     category: 'copo_felicidade',
-    description: "Camadas de creme de Ninho (Leite) cremoso e Brigadeiro Clássico, intercaladas com pedaços macios e úmidos de brownie de chocolate. Uma combinação clássica dos dois amores do Brasil, perfeita para os chocólatras.",
+    description: "Dois amores + brownie macio em camadas.",
     imageUrl: "https://i.imgur.com/mMQtXDB.png"
   },
   {
-    id: 26, 
+    id: 26,
     name: "Copo Encanto de Ninho e Morangos",
-    price: 22.90, 
+    price: 22.90,
     category: 'copo_felicidade',
-    description: "Ninho com Morangos Camadas cremosas de creme de Ninho intercaladas com morangos frescos, criando um equilíbrio perfeito entre o doce e o azedinho da fruta. Finalizado com chantilly suave e um morango fresco por cima, trazendo aquele toque especial que conquista no primeiro olhar... e no primeiro sabor!",
+    description: "Camadas de creme de Ninho e morangos frescos.",
     imageUrl: "https://i.imgur.com/EgFhhwL.png"
   },
   {
-    id: 27, 
+    id: 27,
     name: "Copo de Brownie com Ferreiro e Nutella",
-    price: 26.90, 
+    price: 26.90,
     category: 'copo_felicidade',
-    description: "Brownie, Ferrero & Nutella Começa com uma camada de chocolate 50% com amendoim e Nutella, seguida de brownie macio no meio. Depois, mais chocolate 50% com amendoim e bastante Nutella, finalizando com Nutella cremosa por cima e um pedaço de brownie para completar essa explosão de sabor.",
+    description: "Brownie, Ferrero, chocolate 50% e Nutella.",
     imageUrl: "https://i.imgur.com/t6xeVDf.png"
   },
 
   // Categoria BROWNIES
-  { 
+  {
     id: 20,
     name: "Brownie De Ninho e Nutella",
-    price: 11.90, 
+    price: 11.90,
     category: 'brownie',
-    description: "Brownie gourmet coberto com creme de Ninho, finalizado com Nutella e morango fresco. Uma combinação irresistível para adoçar seu Dia! 8x8",
+    description: "Brownie com creme de Ninho e Nutella.",
     imageUrl: "https://i.imgur.com/vWdYZ8K.png"
   },
   {
     id: 21,
     name: "Brownie Recheado com Nutella e Morangos",
-    price: 22.90, 
+    price: 22.90,
     category: 'brownie',
-    description: "Duas camadas de brownie super molhadinho, recheado e coberto com creme de leite Ninho, finalizado com Nutella e morango fresco para aquele toque especial. Simples, irresistível e feito para adoçar seu Dia!",
+    description: "Brownie recheado com creme de Ninho, Nutella e morangos.",
     imageUrl: "https://i.imgur.com/P1pprjF.png"
   },
   {
-    id: 22, 
+    id: 22,
     name: "Brownie Ferreiro com Nutella",
-    price: 11.90, 
+    price: 11.90,
     category: 'brownie',
-    description: "Um brownie super cremoso e chocolatudo, coberto com Nutella na medida certa e finalizado com amendoim torrado crocante. A mistura perfeita entre o doce intenso do chocolate e o toque salgado do amendoim, simplesmente irresistível",
-    imageUrl: "https://i.imgur.com/rmp3LtH.png" 
+    description: "Brownie com Nutella e amendoim torrado.",
+    imageUrl: "https://i.imgur.com/rmp3LtH.png"
   },
   {
-    id: 23, 
+    id: 23,
     name: "Brownie Duo com Oreo",
-    price: 11.90, 
+    price: 11.90,
     category: 'brownie',
-    description: "Brownie macio e úmido, coberto com creme de chocolate e finalizado com pedaços crocantes de Oreo. Uma explosão de sabor em cada mordida!",
+    description: "Brownie com cobertura de chocolate e pedaços de Oreo.",
     imageUrl: "https://i.imgur.com/8IbcWWj.png"
   },
-  
+
   // Categoria AÇAÍ
   {
-    id: ACAI_ID, // 18
+    id: ACAI_ID,
     name: "Copo de Açaí 250ml",
-    price: ACAI_BASE_PRICE, 
+    price: ACAI_BASE_PRICE,
     category: 'acai',
-    description: "Copo de Açai cremoso e saboroso. Escolha seus acompanhamentos e saboreie.",
+    description: "Copo de Açaí cremoso — escolha seus acompanhamentos.",
     imageUrl: "https://i.imgur.com/OrErP8N.png"
   },
-  
-  // Categoria SALGADOS (APENAS Empada de Camarão e Requeijão)
-  { 
-    id: 6, 
-    name: "Empada de Camarão e Requeijão", 
-    price: 12.00, // Preço sugerido
-    category: 'salgado', 
-    description: "Camarão Cremoso com Requeijão: Camarões selecionados salteados e envoltos em um cremoso molho e Requeijão com tempero caseiro e sabor marcante. Servido na marmitinha, é a combinação perfeita de praticidade e sabor em cada garfada!", 
-    imageUrl: "https://i.imgur.com/rV18DkJ.png" 
-  },
-  // IDs 4, 5 e 7 foram removidos conforme a solicitação do usuário.
+
+  // Categoria SALGADOS
+  {
+    id: 6,
+    name: "Empada de Camarão e Requeijão",
+    price: 12.00,
+    category: 'salgado',
+    description: "Camarão cremoso com requeijão. Feito na marmitinha.",
+    imageUrl: "https://i.imgur.com/rV18DkJ.png"
+  }
 ];
 
-// Mapeamento de categorias
 const categories = {
   all: 'Todos os Produtos',
-  bolos: 'Bolos (Fina)', 
-  copo_felicidade: 'Copo da Felicidade', 
-  brownie: 'Brownies', 
-  acai: 'Açaí e Gelados', 
-  salgado: 'Salgados (Culinária Rústica)',
+  bolos: 'Bolos',
+  copo_felicidade: 'Copo da Felicidade',
+  brownie: 'Brownies',
+  acai: 'Açaí',
+  salgado: 'Salgados',
 };
 
-const PAYMENT_METHODS = [
-{ id: 'pix', name: 'Pix', icon: Zap, details: 'Pagamento instantâneo via QR Code ou chave Pix.' }
-];
+const PAYMENT_METHODS = [{ id: 'pix', name: 'Pix', details: 'Pagamento via QR Code ou chave Pix.' }];
 
-const DELIVERY_FEE = 2.99;
+/* ------------- Helpers ------------- */
+const formatBR = (value) => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
 
-// --- DADOS REAIS PIX ATUALIZADOS ---
-const REAL_PIX_KEY = '61.982.423/0001-49 (CNPJ)'; 
-const REAL_PIX_KEY_RAW = '61982423000149'; // A chave crua para copiar
-const REAL_PIX_QR_CODE_URL = 'https://i.imgur.com/BUa6qT4.png'; // NOVO QR CODE
-const REAL_PIX_RECIPIENT_NAME = 'Nome Empresarial - Doce É Ser Tapera'; 
-
-// --- LINKS INSTAGRAM FORNECIDOS PELO USUÁRIO ---
-const INSTAGRAM_POSTS = [
-    { id: 1, type: "Red Velvet", url: "https://www.instagram.com/p/DOpDYYekTzI/?img_index=2" },
-    { id: 2, type: "Brownie de Colher", url: "https://www.instagram.com/p/DOtYOWgEa4E/?img_index=1" },
-    { id: 3, type: "Bolo de Cenoura", url: "https://www.instagram.com/p/DPCR392EQCb/?img_index=1" },
-    { id: 4, type: "Chocolatudo", url: "https://www.instagram.com/p/DPh4DjNkYTw/" },
-    { id: 5, type: "Copo da Felicidade", url: "https://www.instagram.com/p/DOqtAqzDU2j/" },
-    { id: 6, type: "Empada de Camarão", url: "https://www.instagram.com/p/DQ2l6zjEZOq/" },
-];
-
-
-// --- FUNÇÕES DE PERSISTÊNCIA ---
-
-// Função para obter a referência do documento do carrinho
 const getCartDocRef = (userId) => {
-    if (!db || !userId) return null;
-    // Caminho: /artifacts/{appId}/users/{userId}/cart/current
-    const path = `/artifacts/${appId}/users/${userId}/cart/current`;
-    return doc(db, path);
+  if (!db || !userId) return null;
+  return doc(db, COLLECTION_CARTS, userId);
 };
 
-// Função para salvar o carrinho no Firestore
-const saveCartToFirestore = async (userId, cartItems) => {
-    if (!db || !userId) return;
+const createOrderInFirestore = async ({ cart, total, customer, deliveryType }) => {
+  try {
+    const pedidosRef = collection(db, COLLECTION_ORDERS);
+    const payload = {
+      items: cart,
+      total,
+      customer: customer || {},
+      deliveryType,
+      status: 'novo',
+      createdAt: serverTimestamp()
+    };
+    const docRef = await addDoc(pedidosRef, payload);
+    return docRef.id;
+  } catch (err) {
+    console.error("Erro ao criar pedido:", err);
+    return null;
+  }
+};
+
+const saveCartToFirestore = async (userId, cart) => {
+  try {
     const cartRef = getCartDocRef(userId);
     if (!cartRef) return;
-    
-    try {
-        // Usa setDoc para criar ou sobrescrever o documento 'current'
-        await setDoc(cartRef, { items: cartItems, updatedAt: new Date().toISOString() });
-    } catch (e) {
-        console.error("Erro ao guardar o carrinho: ", e);
-    }
-};
-
-// --- COMPONENTES ---
-
-// Componente de Customização do Açaí
-const AcaiCustomizationModal = ({ product, closeModal, setCart }) => {
-    // State para guardar os adicionais selecionados
-    const [selectedToppings, setSelectedToppings] = useState([]);
-
-    // Cálculo do preço
-    const totalToppingsPrice = useMemo(() => {
-        return selectedToppings.reduce((total, toppingName) => {
-            const topping = ACAI_TOPPINGS.find(t => t.name === toppingName);
-            return total + (topping ? topping.price : 0);
-        }, 0);
-    }, [selectedToppings]);
-
-    const totalFinalPrice = ACAI_BASE_PRICE + totalToppingsPrice;
-
-    // Toggle de seleção
-    const toggleTopping = (toppingName) => {
-        setSelectedToppings(prev => {
-            if (prev.includes(toppingName)) {
-                return prev.filter(name => name !== toppingName);
-            } else {
-                return [...prev, toppingName];
-            }
-        });
-    };
-
-    // Adiciona o item customizado ao carrinho
-    const handleAddToCart = () => {
-        const newItem = {
-            id: product.id,
-            uniqueId: Date.now().toString(), // Chave única para itens customizados (não agrupáveis)
-            name: product.name,
-            basePrice: ACAI_BASE_PRICE,
-            toppings: selectedToppings,
-            price: totalFinalPrice,
-            quantity: 1,
-            isCustom: true
-        };
-
-        setCart(prevCart => [...prevCart, newItem]);
-        closeModal();
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-[100] flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto transform transition-all">
-                
-                {/* Cabeçalho do Modal */}
-                <div className="p-6 border-b sticky top-0 bg-white z-10 rounded-t-xl">
-                    <h3 className="text-3xl font-extrabold text-amber-700">{product.name}</h3>
-                    <p className="text-lg text-gray-600 mt-1">Crie o seu Açaí perfeito!</p>
-                    <button 
-                        onClick={closeModal} 
-                        className="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition"
-                    >
-                        <X className="w-6 h-6" />
-                    </button>
-                </div>
-                
-                {/* Conteúdo Principal (Toppings) */}
-                <div className="p-6 space-y-4">
-                    <h4 className="text-xl font-bold text-gray-800 border-b pb-2">
-                        Selecione seus Adicionais <span className='text-sm font-normal text-amber-600'>(Opcional)</span>
-                    </h4>
-
-                    <div className="space-y-3">
-                        {ACAI_TOPPINGS.map(topping => {
-                            const isSelected = selectedToppings.includes(topping.name);
-                            return (
-                                <div 
-                                    key={topping.name} 
-                                    onClick={() => toggleTopping(topping.name)}
-                                    className={`flex justify-between items-center p-4 rounded-lg cursor-pointer transition duration-200 border-2 
-                                        ${isSelected ? 'border-amber-600 bg-amber-50' : 'border-gray-200 hover:bg-gray-50'}`}
-                                >
-                                    <span className="font-semibold text-gray-800">{topping.name}</span>
-                                    <div className="flex items-center space-x-3">
-                                        <span className={`text-sm font-medium ${topping.price > 0.01 ? 'text-gray-600' : 'text-green-600 font-bold'}`}>
-                                            + R$ {topping.price.toFixed(2).replace('.', ',')}
-                                        </span>
-                                        <div className={`w-6 h-6 rounded-full flex items-center justify-center border ${isSelected ? 'bg-amber-600 border-amber-600' : 'bg-white border-gray-400'}`}>
-                                            {isSelected ? <Check className="w-4 h-4 text-white" /> : null}
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {/* Resumo e Botão de Ação */}
-                <div className="p-6 bg-gray-100 rounded-b-xl sticky bottom-0 border-t">
-                    <div className="flex justify-between items-center mb-4">
-                        <span className="text-lg text-gray-700">Açaí Base ({product.price.toFixed(2).replace('.', ',')}):</span>
-                        <span className="font-bold">R$ {product.price.toFixed(2).replace('.', ',')}</span>
-                    </div>
-                    <div className="flex justify-between items-center mb-4">
-                        <span className="text-lg text-gray-700">Adicionais ({selectedToppings.length}):</span>
-                        <span className="font-bold text-amber-700">R$ {totalToppingsPrice.toFixed(2).replace('.', ',')}</span>
-                    </div>
-
-                    <div className="flex justify-between items-center pt-2 border-t border-gray-300">
-                        <span className="text-xl font-extrabold text-gray-900">Total:</span>
-                        <span className="text-3xl font-extrabold text-green-600">R$ {totalFinalPrice.toFixed(2).replace('.', ',')}</span>
-                    </div>
-
-                    <button 
-                        onClick={handleAddToCart}
-                        className="w-full mt-4 bg-amber-700 text-white py-3 rounded-lg font-bold text-lg hover:bg-amber-800 transition duration-200 shadow-lg"
-                    >
-                        Adicionar ao Carrinho (R$ {totalFinalPrice.toFixed(2).replace('.', ',')})
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-// Icone Check que faltou no import para usar no modal
-const Check = ({ className }) => <svg className={className} fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor"><path d="M5 13l4 4L19 7"/></svg>;
-
-
-// Componente de Cabeçalho de Etapas do Checkout
-const CheckoutStepper = ({ step }) => {
-    const steps = [
-        { id: 'cart', name: 'Carrinho' },
-        { id: 'delivery', name: 'Entrega' },
-        { id: 'payment', name: 'Pagamento' },
-        { id: 'confirm', name: 'Confirmação' },
-    ];
-
-    const stepIndex = steps.findIndex(s => s.id === step);
-    const primaryColorClass = 'bg-amber-700';
-    const secondaryColorClass = 'text-amber-700';
-    const trackColorClass = 'bg-amber-400';
-
-    return (
-        <div className="flex justify-between items-center max-w-2xl mx-auto mb-10">
-            {steps.map((s, index) => (
-                <React.Fragment key={s.id}>
-                    <div className="flex flex-col items-center">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white transition-all duration-300 ${
-                            index <= stepIndex ? primaryColorClass : 'bg-gray-300'
-                        }`}>
-                            {index < stepIndex ? <ChevronRight className="w-5 h-5 transform rotate-180" /> : index + 1}
-                        </div>
-                        <span className={`text-sm mt-1 hidden md:block ${index <= stepIndex ? `${secondaryColorClass} font-semibold` : 'text-gray-500'}`}>
-                            {s.name}
-                        </span>
-                    </div>
-                    {index < steps.length - 1 && (
-                        <div className={`flex-1 h-1 transition-all duration-300 ${index < stepIndex ? trackColorClass : 'bg-gray-300'}`}></div>
-                    )}
-                </React.Fragment>
-            ))}
-        </div>
-    );
-};
-
-// Componente para a visualização do produto (Card)
-const ProductCard = ({ product, addToCart, openAcaiModal }) => {
-  
-  const buttonClass = 'bg-amber-600 hover:bg-amber-700';
-  const tagColorClass = 'bg-amber-600';
-  const isAcai = product.id === ACAI_ID;
-
-  let categoryTag = 'Doce';
-  let tagIcon = Cake; 
-  
-  switch(product.category) {
-      case 'bolos': categoryTag = 'Bolo'; tagIcon = Cake; break;
-      case 'copo_felicidade': categoryTag = 'Copo'; tagIcon = Heart; break;
-      case 'brownie': categoryTag = 'Brownie'; tagIcon = Cookie; break;
-      case 'acai': categoryTag = 'Açaí'; tagIcon = IceCream; break;
-      case 'salgado': categoryTag = 'Salgado'; tagIcon = Utensils; break;
-      default: categoryTag = 'Item'; tagIcon = Sunrise;
+    await setDoc(cartRef, { items: cart, updatedAt: new Date().toISOString() }, { merge: true });
+  } catch (err) {
+    console.error("Erro ao salvar carrinho:", err);
   }
+};
 
-  const TagIcon = tagIcon;
+/* ---------- LocalStorage helpers for 'Meus Pedidos' ---------- */
+const LOCAL_ORDERS_KEY = "doceeser_local_orders";
 
-  // Determina a ação ao clicar
-  const handleAction = () => {
-      if (isAcai) {
-          openAcaiModal(product);
-      } else {
-          addToCart(product);
-      }
-  };
+const saveLocalOrderId = (orderId) => {
+  try {
+    const existingJson = localStorage.getItem(LOCAL_ORDERS_KEY);
+    const arr = existingJson ? JSON.parse(existingJson) : [];
+    // push at start
+    const newArr = [orderId, ...arr.filter(id => id !== orderId)];
+    localStorage.setItem(LOCAL_ORDERS_KEY, JSON.stringify(newArr.slice(0, 50)));
+  } catch (e) {
+    console.warn("Erro salvando localOrders", e);
+  }
+};
 
+const readLocalOrders = () => {
+  try {
+    const existingJson = localStorage.getItem(LOCAL_ORDERS_KEY);
+    return existingJson ? JSON.parse(existingJson) : [];
+  } catch (e) {
+    return [];
+  }
+};
 
+/* ------------- Small UI components ------------- */
+const ProductCard = ({ product, onAdd, onCustomize }) => {
+  const isAcai = product.id === ACAI_ID;
   return (
-    <div className={`flex flex-col rounded-xl shadow-lg transition duration-300 transform hover:scale-[1.02] overflow-hidden bg-white`}>
-        {/* Imagem do Produto */}
-        <div className="h-40 overflow-hidden relative">
-            <img 
-                src={product.imageUrl} 
-                alt={product.name} 
-                className="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
-                onError={(e) => { e.target.onerror = null; e.target.src = "https://placehold.co/400x250/cccccc/333333?text=Doce+É+Ser"; }}
-            />
-            <div className={`absolute top-0 right-0 p-2 rounded-bl-lg ${tagColorClass} text-white text-xs font-bold flex items-center gap-1`}>
-                <TagIcon className='w-3 h-3'/> {categoryTag}
-            </div>
+    <div className="flex flex-col rounded-xl shadow-lg overflow-hidden bg-white">
+      <div className="h-40 overflow-hidden relative">
+        <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" onError={(e)=>e.target.src="https://placehold.co/400x250/cccccc/333333?text=Doce+É+Ser"} />
+        <div className="absolute top-0 right-0 p-2 rounded-bl-lg bg-amber-600 text-white text-xs font-bold">{product.category}</div>
+      </div>
+      <div className="p-4 flex-grow flex flex-col justify-between">
+        <div>
+          <h3 className="text-lg font-bold">{product.name}</h3>
+          <p className="text-sm text-gray-600">{product.description}</p>
         </div>
-
-        <div className="p-4 flex-grow flex flex-col justify-between">
-            <div>
-                <h3 className="text-xl font-bold text-gray-800 mb-1">{product.name}</h3>
-                <p className={`text-sm mb-3 text-gray-600`}>{product.description}</p>
-            </div>
-            
-            <div className="mt-4 flex justify-between items-center pt-2 border-t border-gray-100">
-                {/* Preço base, para açaí será o preço inicial */}
-                <span className="text-2xl font-extrabold text-amber-700">R$ {product.price.toFixed(2).replace('.', ',')}</span>
-                <button 
-                onClick={handleAction}
-                className={`text-white p-3 rounded-full shadow-md ${buttonClass} transition duration-150 flex items-center gap-1 text-sm`}
-                >
-                {isAcai ? <IceCream className="w-5 h-5" /> : <Plus className="w-5 h-5" />} 
-                {isAcai ? 'Customizar' : 'Adicionar'}
-                </button>
-            </div>
+        <div className="mt-4 flex justify-between items-center">
+          <span className="font-extrabold text-amber-700">{formatBR(product.price)}</span>
+          <button onClick={() => (isAcai ? onCustomize(product) : onAdd(product))} className="bg-amber-600 text-white p-2 rounded-full">
+            {isAcai ? "Customizar" : "Adicionar"}
+          </button>
         </div>
+      </div>
     </div>
   );
 };
 
-// Página do Menu (Listagem de produtos)
-const MenuPage = ({ setCart, activeCategory, setActiveCategory, openAcaiModal }) => {
-  const filteredProducts = useMemo(() => {
-    if (activeCategory === 'all') {
-      return initialProducts;
-    }
-    return initialProducts.filter(p => p.category === activeCategory);
-  }, [activeCategory]);
+const OrderSummary = ({ cart, deliveryType = 'delivery' }) => {
+  const subtotal = cart.reduce((s, i) => s + (i.price * (i.quantity || 1)), 0);
+  const deliveryFee = deliveryType === 'delivery' ? DELIVERY_FEE : 0;
+  const total = subtotal + deliveryFee;
+  if (!cart || cart.length === 0) return null;
+  return (
+    <div className="bg-white p-4 rounded-xl shadow-lg">
+      <h4 className="font-bold text-lg">Resumo do Pedido</h4>
+      <div className="mt-3 text-sm text-gray-600">
+        <div className="flex justify-between"><span>Subtotal</span><span>{formatBR(subtotal)}</span></div>
+        <div className="flex justify-between"><span>Entrega</span><span>{deliveryType === 'delivery' ? formatBR(deliveryFee) : 'GRÁTIS'}</span></div>
+        <hr className="my-2" />
+        <div className="flex justify-between font-bold"><span>Total</span><span>{formatBR(total)}</span></div>
+      </div>
+      <div className="mt-3 text-xs text-gray-500">
+        Itens:
+        <ul className="mt-1 list-disc ml-5">
+          {cart.map((it, i) => <li key={it.uniqueId || `${it.id}-${i}`}>{(it.quantity||1)}x {it.name} {it.toppings ? `(${it.toppings.join(', ')})` : ''}</li>)}
+        </ul>
+      </div>
+    </div>
+  );
+};
 
-  const addToCart = (product) => {
-    // Lógica para itens NÃO customizáveis: agrupa por ID
-    setCart(prevCart => {
-      // Procura por um item existente que não seja customizado
-      const existingItem = prevCart.find(item => item.id === product.id && !item.isCustom);
-      
-      if (existingItem) {
-        return prevCart.map(item =>
-          item.id === product.id && !item.isCustom ? { ...item, quantity: item.quantity + 1 } : item
-        );
+/* ------------- New: Order Tracking Page (real-time) ------------- */
+const OrderTrackingPage = ({ orderId }) => {
+  const [order, setOrder] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orderId || !db) return;
+    const orderRef = doc(db, COLLECTION_ORDERS, orderId);
+
+    const unsub = onSnapshot(orderRef, (snap) => {
+      if (snap.exists()) {
+        setOrder({ id: snap.id, ...snap.data() });
       } else {
-        // Adiciona item padrão
-        return [...prevCart, { ...product, quantity: 1, isCustom: false }];
+        setOrder(null);
       }
+      setLoading(false);
+    }, (err) => {
+      console.error("Erro listening order:", err);
+      setLoading(false);
     });
-  };
-  
-  const getCategoryColorClass = (key, isActive) => {
-    const baseClass = 'bg-gray-100 text-gray-700 hover:bg-gray-200';
-    const activeClass = 'bg-amber-700 text-white hover:bg-amber-800'; 
 
-    if (isActive) {
-        return activeClass; 
-    }
-    return baseClass;
-  };
+    return () => unsub();
+  }, [orderId]);
 
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>
+  );
+
+  if (!order) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="bg-white p-6 rounded shadow text-center">
+        <h3 className="font-bold text-lg">Pedido não encontrado</h3>
+        <p className="text-sm text-gray-600">Verifique se o ID está correto.</p>
+      </div>
+    </div>
+  );
+
+  const status = order.status || '—';
+  const subtitle = {
+    novo: 'Pedido recebido',
+    preparando: 'Estamos preparando',
+    pronto: 'Pedido pronto',
+    entregue: 'Entregue'
+  }[status] || status;
+
+  const createdAt = order.createdAt && order.createdAt.toDate ? order.createdAt.toDate().toLocaleString() : '';
 
   return (
-    <div className="p-4 md:p-8">
-      <h2 className="text-3xl md:text-4xl font-extrabold text-gray-800 mb-6 border-b pb-2">
-        {categories[activeCategory]}
-      </h2>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-3xl mx-auto">
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex justify-between items-start">
+            <div>
+              <h2 className="text-2xl font-bold">Pedido: <span className="text-amber-600">{order.id}</span></h2>
+              <p className="text-sm text-gray-600">{subtitle}</p>
+              <p className="text-xs text-gray-400 mt-1">Criado: {createdAt}</p>
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-bold">{order.total ? formatBR(Number(order.total)) : ''}</div>
+              <div className="text-sm text-gray-500">{ETA_TEXT}</div>
+            </div>
+          </div>
 
-      {/* Seletor de Categoria Inovador */}
-      <div className="flex justify-center flex-wrap gap-4 mb-10 p-3 bg-white rounded-xl shadow-inner">
-        {Object.entries(categories).map(([key, value]) => (
-          <button
-            key={key}
-            onClick={() => setActiveCategory(key)}
-            className={`px-5 py-2 rounded-full font-semibold transition-all duration-300 shadow-md
-              ${getCategoryColorClass(key, activeCategory === key)}`
-            }
-          >
-            {value.split(' ')[0]}
+          <div className="mt-4">
+            <h4 className="font-semibold">Itens</h4>
+            <ul className="list-disc ml-5 text-sm mt-2">
+              {Array.isArray(order.items) ? order.items.map((it, i) => (
+                <li key={i}>{(it.quantity || 1)}x {it.name} {it.toppings ? `(+${it.toppings.join(', ')})` : ''}</li>
+              )) : <li>—</li>}
+            </ul>
+          </div>
+
+          <div className="mt-4">
+            <h4 className="font-semibold">Endereço / Cliente</h4>
+            <p className="text-sm">{order.customer?.nome || '—'}</p>
+            <p className="text-xs text-gray-500">{order.customer?.telefone || ''}</p>
+            <p className="text-xs text-gray-500">{order.customer?.rua ? `${order.customer.rua}, ${order.customer.numero || ''} — ${order.customer.bairro || ''}` : ''}</p>
+          </div>
+
+          <div className="mt-6 flex gap-2">
+            <button onClick={()=>navigator.clipboard.writeText(window.location.href)} className="px-4 py-2 rounded bg-amber-700 text-white">Copiar link</button>
+            <a href="/meus-pedidos" className="px-4 py-2 rounded border">Meus pedidos</a>
+            <a href="/" className="px-4 py-2 rounded border">Voltar ao menu</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ------------- New: Meus Pedidos Page ------------- */
+const MyOrdersPage = () => {
+  const [localIds, setLocalIds] = useState(readLocalOrders());
+  const [orders, setOrders] = useState([]); // array of {id, data}
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLocalIds(readLocalOrders());
+  }, []);
+
+  useEffect(() => {
+    if (!db || localIds.length === 0) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    // subscribe to each doc; collect unsubscribes
+    const unsubList = [];
+    const result = [];
+
+    localIds.forEach(id => {
+      const ref = doc(db, COLLECTION_ORDERS, id);
+      const unsub = onSnapshot(ref, (snap) => {
+        const idx = result.findIndex(r => r.id === id);
+        const payload = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+        if (idx === -1 && payload) result.push(payload);
+        else if (idx > -1) {
+          if (payload) result[idx] = payload;
+          else result.splice(idx, 1);
+        }
+        // reassign to state ensuring order same as localIds (most recent first)
+        const ordered = localIds.map(i => result.find(r => r?.id === i)).filter(Boolean);
+        setOrders(ordered);
+        setLoading(false);
+      }, (err) => {
+        console.error("Erro onSnapshot myorders:", err);
+        setLoading(false);
+      });
+      unsubList.push(unsub);
+    });
+
+    return () => unsubList.forEach(u => u());
+  }, [localIds]);
+
+  const handleOpen = (id) => window.location.href = `/pedido/${id}`;
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-4xl mx-auto">
+        <h2 className="text-2xl font-bold mb-4">Meus Pedidos</h2>
+        {loading && <div className="p-6 bg-white rounded shadow text-center"><Loader2 className="animate-spin" /></div>}
+        {!loading && orders.length === 0 && <div className="p-6 bg-white rounded shadow text-center">Nenhum pedido salvo neste dispositivo.</div>}
+        <div className="space-y-4">
+          {orders.map(order => (
+            <div key={order.id} className="bg-white p-4 rounded shadow flex justify-between items-center">
+              <div>
+                <div className="font-semibold">Pedido: <span className="text-amber-600">{order.id}</span></div>
+                <div className="text-sm text-gray-600">{order.status || '—'} — {order.createdAt && order.createdAt.toDate ? order.createdAt.toDate().toLocaleString() : ''}</div>
+                <div className="text-xs text-gray-500 mt-1">{order.items?.length || 0} itens — {formatBR(Number(order.total || 0))}</div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={()=>handleOpen(order.id)} className="px-3 py-1 bg-amber-700 text-white rounded">Acompanhar</button>
+                <button onClick={()=>{ navigator.clipboard.writeText(window.location.origin + `/pedido/${order.id}`); alert('Link copiado'); }} className="px-3 py-1 border rounded">Copiar link</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ------------- App (main) ------------- */
+const App = () => {
+  const [page, setPage] = useState('menu'); // menu, cart, delivery, payment, about, meus-pedidos, tracking
+  const [activeCategory, setActiveCategory] = useState('all');
+  const [cart, setCart] = useState([]);
+  const [deliveryType, setDeliveryType] = useState('delivery');
+  const [paymentMethod, setPaymentMethod] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [isAcaiModalOpen, setIsAcaiModalOpen] = useState(false);
+  const [acaiProduct, setAcaiProduct] = useState(null);
+
+  const [customerInfo, setCustomerInfo] = useState({
+    nome: '', telefone: '', rua: '', numero: '', bairro: '', referencia: ''
+  });
+
+  const [lastCreatedOrderId, setLastCreatedOrderId] = useState(null);
+
+  const cartItemCount = useMemo(() => cart.reduce((s, i) => s + (i.quantity || 1), 0), [cart]);
+
+  /* ----------------- Auth & cart persistence ----------------- */
+  useEffect(() => {
+    let unsubAuth = () => {};
+    try {
+      unsubAuth = onAuthStateChanged(auth, (user) => {
+        if (user) {
+          setUserId(user.uid);
+          setIsAuthReady(true);
+        } else {
+          signInAnonymously(auth).catch((err) => console.warn("Erro signInAnonymously:", err));
+        }
+      });
+    } catch (err) {
+      console.warn("Firebase auth not available:", err);
+      setIsAuthReady(true);
+    }
+    return () => unsubAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady || !userId) {
+      setIsLoading(false);
+      return;
+    }
+    const cartRef = getCartDocRef(userId);
+    if (!cartRef) { setIsLoading(false); return; }
+    const unsub = onSnapshot(cartRef, (snap) => {
+      if (snap.exists() && snap.data() && Array.isArray(snap.data().items)) setCart(snap.data().items);
+      else setCart([]);
+      setIsLoading(false);
+    }, (err) => { console.error("Erro cart snapshot:", err); setIsLoading(false); });
+    return () => unsub();
+  }, [isAuthReady, userId]);
+
+  useEffect(() => {
+    if (!isAuthReady || !userId) return;
+    const t = setTimeout(()=>saveCartToFirestore(userId, cart), 400);
+    return () => clearTimeout(t);
+  }, [cart, isAuthReady, userId]);
+
+  /* ----------------- Url handling for /pedido/:id and /meus-pedidos ----------------- */
+  useEffect(() => {
+    const p = window.location.pathname || '/';
+    if (p.startsWith('/pedido/')) {
+      setPage('tracking');
+    } else if (p === '/meus-pedidos') {
+      setPage('meus-pedidos');
+    } else {
+      // keep existing behavior (menu etc) if not those paths
+    }
+  }, []);
+
+  /* ----------------- Cart ops ----------------- */
+  const addToCart = useCallback((product) => {
+    setCart(prev => {
+      const existing = prev.find(p => p.id === product.id && !p.isCustom);
+      if (existing) return prev.map(p => p.id === product.id && !p.isCustom ? { ...p, quantity: (p.quantity||1) + 1 } : p);
+      return [...prev, { ...product, quantity: 1, isCustom: false }];
+    });
+  }, []);
+
+  const openAcaiModal = (product) => { setAcaiProduct(product); setIsAcaiModalOpen(true); };
+  const closeAcaiModal = () => { setAcaiProduct(null); setIsAcaiModalOpen(false); };
+
+  const addCustomAcai = (customItem) => {
+    setCart(prev => [...prev, customItem]);
+    closeAcaiModal();
+  };
+
+  const updateQuantity = (key, delta) => {
+    setCart(prev => prev.flatMap(it => {
+      const k = it.uniqueId || it.id;
+      if (k !== key) return it;
+      const nq = (it.quantity||1) + delta;
+      if (nq <= 0) return [];
+      return { ...it, quantity: nq };
+    }));
+  };
+
+  const removeItem = (key) => setCart(prev => prev.filter(it => (it.uniqueId || it.id) !== key));
+
+  /* ----------------- Checkout & create order (modified to save local and redirect to tracking) ----------------- */
+  const subtotal = useMemo(() => cart.reduce((s, i) => s + (i.price * (i.quantity || 1)), 0), [cart]);
+  const deliveryFee = deliveryType === 'delivery' ? DELIVERY_FEE : 0;
+  const total = subtotal + deliveryFee;
+
+  const handleCreateOrder = async () => {
+    if (cart.length === 0) { alert("Carrinho vazio."); return null; }
+    if (!customerInfo.nome || !customerInfo.telefone || !customerInfo.rua || !customerInfo.numero || !customerInfo.bairro) {
+      alert("Preencha nome, telefone, rua, número e bairro antes de confirmar.");
+      return null;
+    }
+
+    // cria pedido no Firestore
+    const id = await createOrderInFirestore({ cart, total, customer: customerInfo, deliveryType });
+    if (id) {
+      // salva localmente
+      saveLocalOrderId(id);
+      setLastCreatedOrderId(id);
+      // limpa carrinho local e Firestore
+      setCart([]);
+      if (userId) await saveCartToFirestore(userId, []);
+      // redireciona para página de pedido e garante que o App renderize a página de rastreio
+      window.history.pushState({}, '', `/pedido/${id}`);
+      setPage('tracking');
+
+      // show friendly confirmation (iFood-style) by keeping lastCreatedOrderId visible
+      // (the tracking page will show real-time status)
+      return id;
+    } else {
+      alert("Erro ao criar pedido. Tente novamente.");
+      return null;
+    }
+  };
+
+  /* ------------- Simple UI pages (menu/cart/delivery/payment/about) ------------- */
+  const MenuPage = (
+    <div className="p-4 md:p-8">
+      <h2 className="text-3xl font-extrabold mb-6">{categories[activeCategory]}</h2>
+      <div className="flex gap-3 mb-6 flex-wrap">
+        {Object.keys(categories).map(k => (
+          <button key={k} onClick={()=>setActiveCategory(k)} className={`px-4 py-2 rounded ${k===activeCategory ? 'bg-amber-700 text-white' : 'bg-gray-100'}`}>
+            {categories[k].split(' ')[0]}
           </button>
         ))}
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {filteredProducts.length > 0 ? (
-          filteredProducts.map(product => (
-            <ProductCard 
-                key={product.id} 
-                product={product} 
-                addToCart={addToCart} 
-                openAcaiModal={openAcaiModal} // Passa a função do modal
-            />
-          ))
-        ) : (
-          <div className="col-span-full text-center py-10 bg-gray-50 rounded-xl">
-            <Ban className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-500">Nenhum produto encontrado nesta categoria.</p>
-          </div>
-        )}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {initialProducts.filter(p => activeCategory === 'all' ? true : p.category === activeCategory).map(p => (
+          <ProductCard key={p.id} product={p} onAdd={addToCart} onCustomize={openAcaiModal} />
+        ))}
       </div>
     </div>
   );
-};
 
-// Componente para exibir o resumo do pedido (usado no carrinho, entrega e pagamento)
-const OrderSummary = ({ cart, deliveryType = 'delivery' }) => {
-    const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
-    const deliveryFee = deliveryType === 'delivery' ? DELIVERY_FEE : 0.00;
-    const total = subtotal + deliveryFee;
-
-    if (cart.length === 0) return null;
-
-    return (
-        <div className="bg-white p-6 rounded-xl shadow-lg h-fit border border-amber-300 sticky top-28">
-            <h3 className="text-2xl font-bold mb-4 text-gray-800">Resumo do Pedido</h3>
-            <div className="space-y-3 border-b pb-4">
-                <div className="flex justify-between">
-                    <span className="text-gray-600">Subtotal ({cart.length} itens):</span>
-                    <span className="font-medium">R$ {subtotal.toFixed(2).replace('.', ',')}</span>
-                </div>
-                <div className="flex justify-between">
-                    <span className="text-gray-600">Taxa de {deliveryType === 'delivery' ? 'Entrega' : 'Serviço'}:</span>
-                    <span className={`font-medium ${deliveryType === 'retirada' ? 'text-green-600' : ''}`}>
-                        {deliveryType === 'retirada' ? 'GRÁTIS' : `R$ ${deliveryFee.toFixed(2).replace('.', ',')}`}
-                    </span>
-                </div>
-            </div>
-            
-            <div className="flex justify-between items-center pt-4">
-                <span className="text-xl font-bold">Total:</span>
-                <span className="text-3xl font-extrabold text-amber-700">R$ {total.toFixed(2).replace('.', ',')}</span>
-            </div>
-            
-            <p className="text-sm font-semibold text-gray-700 mt-4 border-t pt-2">Itens no Carrinho:</p>
-            <div className="max-h-24 overflow-y-auto space-y-1 mt-1">
-                {cart.map((item, index) => (
-                    <p key={item.uniqueId || item.id || index} className="text-xs text-gray-500">
-                        <span className="font-bold text-amber-600">{item.quantity}x</span> {item.name} 
-                        {item.isCustom && item.toppings && item.toppings.length > 0 ? ` (+${item.toppings.length} Adicionais)` : ''}
-                    </p>
-                ))}
-            </div>
-        </div>
-    );
-};
-
-
-// 1. Página do Carrinho de Compras
-const CartPage = ({ cart, setCart, setPage }) => {
-  
-  // Função para identificar a chave do item (id para padrão, uniqueId para customizado)
-  const getItemKey = (item) => item.isCustom ? item.uniqueId : item.id;
-
-  const updateQuantity = (itemToUpdate, delta) => {
-    setCart(prevCart => {
-      const key = getItemKey(itemToUpdate);
-      
-      // Item customizado (Açaí): só permite alterar a quantidade daquela linha
-      if (itemToUpdate.isCustom) {
-          const newQuantity = itemToUpdate.quantity + delta;
-
-          if (newQuantity <= 0) {
-            return prevCart.filter(i => getItemKey(i) !== key);
-          }
-          
-          return prevCart.map(i => 
-            getItemKey(i) === key ? { ...i, quantity: newQuantity } : i
-          );
-      }
-      
-      // Item padrão: altera a quantidade e se for 0, remove
-      const newQuantity = itemToUpdate.quantity + delta;
-      
-      if (newQuantity <= 0) {
-        return prevCart.filter(i => getItemKey(i) !== key);
-      }
-      
-      return prevCart.map(i => 
-        getItemKey(i) === key ? { ...i, quantity: newQuantity } : i
-      );
-    });
-  };
-
-  const removeItem = (itemToRemove) => {
-    const key = getItemKey(itemToRemove);
-    setCart(prevCart => prevCart.filter(i => getItemKey(i) !== key));
-  };
-
-
-  return (
+  const CartPage = (
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
-      <CheckoutStepper step="cart" />
-      
+      <h3 className="text-2xl font-bold mb-4">Seu Carrinho</h3>
       {cart.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-xl shadow-lg">
-          <ShoppingCart className="w-16 h-16 text-gray-300 mx-auto mb-4"/>
-          <p className="text-xl text-gray-600 font-medium">O seu carrinho está vazio.</p>
-          <button 
-            onClick={() => setPage('menu')} 
-            className="mt-6 text-amber-700 hover:text-amber-900 font-semibold flex items-center mx-auto"
-          >
-            <ChevronRight className="w-5 h-5"/> Voltar ao Menu
-          </button>
+        <div className="text-center p-10 bg-white rounded shadow">
+          <ShoppingCart className="mx-auto w-12 h-12 text-gray-300" />
+          <p className="mt-3">Seu carrinho está vazio.</p>
+          <button onClick={()=>setPage('menu')} className="mt-4 text-amber-700">Voltar ao Menu</button>
         </div>
       ) : (
-        <div className="lg:flex lg:space-x-8">
-          
-          {/* Lista de Itens */}
+        <div className="lg:flex lg:space-x-6">
           <div className="flex-grow space-y-4">
-             <h3 className="text-2xl font-bold text-gray-800 mb-4">Itens Selecionados</h3>
-            {cart.map(item => (
-              <div key={getItemKey(item)} className="flex items-center bg-white p-4 rounded-xl shadow-md border-l-4 border-amber-600">
-                <div className="flex-grow">
-                  <h4 className="font-semibold text-lg">{item.name}</h4>
-                  <p className="text-sm text-gray-500">R$ {item.price.toFixed(2).replace('.', ',')} / un</p>
-                  
-                  {/* Detalhes para itens customizados */}
-                  {item.isCustom && item.toppings && item.toppings.length > 0 && (
-                      <div className="text-xs mt-1 p-1 bg-amber-50 rounded-md inline-block">
-                          <span className="font-bold">Adicionais:</span> {item.toppings.join(', ')}
-                      </div>
-                  )}
-                  {item.isCustom && item.toppings.length === 0 && (
-                       <div className="text-xs mt-1 p-1 bg-gray-100 rounded-md inline-block">
-                          <span className="font-bold">Adicionais:</span> Nenhum
-                      </div>
-                  )}
-
+            {cart.map((it, idx) => {
+              const key = it.uniqueId || it.id || idx;
+              return (
+                <div key={key} className="flex items-center bg-white p-4 rounded shadow">
+                  <div className="flex-grow">
+                    <div className="font-semibold">{it.name}</div>
+                    <div className="text-sm text-gray-500">{formatBR(it.price)} / un</div>
+                    {it.isCustom && it.toppings && <div className="text-xs text-gray-600">+ {it.toppings.join(', ')}</div>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>updateQuantity(key, -1)} className="p-1 border rounded"><Minus className="w-4 h-4" /></button>
+                    <div className="font-bold">{it.quantity || 1}</div>
+                    <button onClick={()=>updateQuantity(key, 1)} className="p-1 border rounded"><Plus className="w-4 h-4" /></button>
+                  </div>
+                  <div className="ml-4 font-bold text-amber-700">{formatBR((it.price || 0) * (it.quantity || 1))}</div>
+                  <button onClick={()=>removeItem(key)} className="ml-4 text-red-500"><X /></button>
                 </div>
-                
-                <div className="flex items-center space-x-3 mx-4">
-                  <button onClick={() => updateQuantity(item, -1)} className="p-1 border rounded-full hover:bg-gray-100">
-                    <Minus className="w-4 h-4 text-amber-600" />
-                  </button>
-                  <span className="font-bold">{item.quantity}</span>
-                  <button onClick={() => updateQuantity(item, 1)} className="p-1 border rounded-full hover:bg-gray-100">
-                    <Plus className="w-4 h-4 text-amber-600" />
-                  </button>
-                </div>
-
-                <div className="w-20 text-right font-bold text-lg text-amber-700">
-                  R$ ${(item.price * item.quantity).toFixed(2).replace('.', ',')}
-                </div>
-                
-                <button onClick={() => removeItem(item)} className="ml-4 p-1 text-red-500 hover:text-red-700 transition">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            ))}
-             <button 
-                onClick={() => setPage('menu')} 
-                className="mt-6 text-amber-700 hover:text-amber-900 font-semibold flex items-center"
-             >
-                <ChevronRight className="w-5 h-5 transform rotate-180 mr-1 inline-block"/> Continuar a Comprar
-            </button>
+              );
+            })}
+            <div>
+              <button onClick={()=>setPage('menu')} className="mt-4 text-amber-700">Continuar comprando</button>
+            </div>
           </div>
-          
-          {/* Resumo e Ação */}
-          <div className="lg:w-80 mt-8 lg:mt-0">
-            <OrderSummary cart={cart} deliveryType='delivery' />
-            <button 
-                onClick={() => setPage('delivery')} 
-                className="w-full mt-6 bg-amber-700 text-white py-3 rounded-lg font-bold text-lg hover:bg-amber-800 transition duration-200 shadow-xl"
-            >
-                Prosseguir para a Entrega
-            </button>
+
+          <div className="lg:w-80 mt-6 lg:mt-0">
+            <OrderSummary cart={cart} deliveryType={deliveryType} />
+            <button onClick={()=>setPage('delivery')} className="w-full mt-4 bg-amber-700 text-white py-2 rounded">Prosseguir para Entrega</button>
           </div>
         </div>
       )}
     </div>
   );
-};
 
+  const DeliveryPage = (
+    <div className="p-4 md:p-8 max-w-6xl mx-auto">
+      <h3 className="text-2xl font-bold mb-4">Entrega</h3>
+      <div className="grid md:grid-cols-2 gap-4">
+        <label className={`p-4 rounded border ${deliveryType==='delivery' ? 'border-amber-600 bg-amber-50' : 'bg-white'}`}>
+          <input type="radio" checked={deliveryType==='delivery'} onChange={()=>setDeliveryType('delivery')} className="hidden" />
+          <div className="font-semibold">Entrega (R$ {DELIVERY_FEE.toFixed(2)})</div>
+          <div className="text-sm text-gray-600 mt-2">
+            <input placeholder="CEP" className="w-full p-2 border rounded mb-2" />
+            <input placeholder="Rua, Número, Bairro" value={customerInfo.rua} onChange={(e)=>setCustomerInfo(prev=>({...prev, rua: e.target.value}))} className="w-full p-2 border rounded" />
+          </div>
+        </label>
 
-// 2. Página de Entrega/Retirada
-const DeliveryPage = ({ cart, setPage, deliveryType, setDeliveryType }) => {
-    return (
-        <div className="p-4 md:p-8 max-w-6xl mx-auto">
-            <CheckoutStepper step="delivery" />
-            <div className="lg:flex lg:space-x-8">
-                
-                <div className="flex-grow space-y-6">
-                    <h3 className="text-2xl font-bold text-gray-800 mb-4">1. Escolha como receber o seu pedido</h3>
-                    
-                    {/* Opções de Entrega/Retirada */}
-                    <div className="grid md:grid-cols-2 gap-4">
-                        
-                        {/* Entrega (Delivery) */}
-                        <label className={`block p-6 rounded-xl shadow-lg border-2 cursor-pointer transition duration-300 ${
-                            deliveryType === 'delivery' ? 'border-amber-600 bg-amber-50' : 'border-gray-200 bg-white hover:shadow-xl'
-                        }`}>
-                            <input 
-                                type="radio" 
-                                name="delivery_option" 
-                                value="delivery" 
-                                checked={deliveryType === 'delivery'} 
-                                onChange={() => setDeliveryType('delivery')}
-                                className="hidden"
-                            />
-                            <div className="flex items-center space-x-4">
-                                <Truck className={`w-8 h-8 ${deliveryType === 'delivery' ? 'text-amber-600' : 'text-gray-500'}`} />
-                                <div>
-                                    <span className="font-bold text-xl block">Entrega (Delivery)</span>
-                                    <span className="text-sm text-gray-600">Receba em sua casa. Taxa: R$ {DELIVERY_FEE.toFixed(2).replace('.', ',')}</span>
-                                </div>
-                            </div>
-                            {deliveryType === 'delivery' && (
-                                <div className="mt-4 p-3 bg-white border border-amber-200 rounded-lg">
-                                    <h4 className="font-semibold mb-2">Detalhes da Entrega (Simulação)</h4>
-                                    <input type="text" placeholder="CEP" className="w-full p-2 border rounded-md mb-2 focus:ring-amber-500 focus:border-amber-500"/>
-                                    <input type="text" placeholder="Rua, Número, Bairro" className="w-full p-2 border rounded-md focus:ring-amber-500 focus:border-amber-500"/>
-                                </div>
-                            )}
-                        </label>
+        <label className={`p-4 rounded border ${deliveryType==='retirada' ? 'border-amber-600 bg-amber-50' : 'bg-white'}`}>
+          <input type="radio" checked={deliveryType==='retirada'} onChange={()=>setDeliveryType('retirada')} className="hidden" />
+          <div className="font-semibold">Retirada na loja (GRÁTIS)</div>
+          <div className="text-sm text-gray-600 mt-2">
+            <input placeholder="Nome para retirada" value={customerInfo.nome} onChange={(e)=>setCustomerInfo(prev=>({...prev, nome: e.target.value}))} className="w-full p-2 border rounded mb-2" />
+            <input placeholder="Telefone" value={customerInfo.telefone} onChange={(e)=>setCustomerInfo(prev=>({...prev, telefone: e.target.value}))} className="w-full p-2 border rounded" />
+          </div>
+        </label>
+      </div>
 
-                        {/* Retirada (Pickup) */}
-                        <label className={`block p-6 rounded-xl shadow-lg border-2 cursor-pointer transition duration-300 ${
-                            deliveryType === 'retirada' ? 'border-amber-600 bg-amber-50' : 'border-gray-200 bg-white hover:shadow-xl'
-                        }`}>
-                            <input 
-                                type="radio" 
-                            name="delivery_option" 
-                                value="retirada" 
-                                checked={deliveryType === 'retirada'} 
-                                onChange={() => setDeliveryType('retirada')}
-                                className="hidden"
-                            />
-                            <div className="flex items-center space-x-4">
-                                <MapPin className={`w-8 h-8 ${deliveryType === 'retirada' ? 'text-amber-600' : 'text-gray-500'}`} />
-                                <div>
-                                    <span className="font-bold text-xl block">Levantamento na Loja</span>
-                                    <span className="text-sm text-gray-600">Morada: Rua Servidão Unidos 478</span>
-                                </div>
-                            </div>
-                             {deliveryType === 'retirada' && (
-                                <div className="mt-4 p-3 bg-white border border-amber-200 rounded-lg">
-                                    <div className="flex items-center text-sm text-gray-700">
-                                        <Clock className="w-4 h-4 mr-2"/> Disponível em aproximadamente 30 minutos após a confirmação.
-                                    </div>
-                                    <p className='mt-2 text-xs text-gray-500'>Por favor, digite seu nome e telefone para a retirada.</p>
-                                    <input type="text" placeholder="Seu Nome" className="w-full p-2 border rounded-md mt-2 focus:ring-amber-500 focus:border-amber-500"/>
-                                    <input type="text" placeholder="Seu Telefone" className="w-full p-2 border rounded-md mt-2 focus:ring-amber-500 focus:border-amber-500"/>
-
-                                </div>
-                            )}
-                        </label>
-                    </div>
-
-                    <button 
-                        onClick={() => setPage('payment')} 
-                        className="w-full bg-amber-700 text-white py-3 rounded-lg font-bold text-lg hover:bg-amber-800 transition duration-200 shadow-xl mt-6"
-                    >
-                        Prosseguir para o Pagamento
-                    </button>
-                    <button 
-                        onClick={() => setPage('cart')} 
-                        className="w-full bg-gray-200 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-300 transition duration-200"
-                    >
-                        <ChevronRight className="w-5 h-5 transform rotate-180 mr-1 inline-block"/> Voltar ao Carrinho
-                    </button>
-
-                </div>
-                
-                {/* Resumo do Pedido */}
-                <div className="lg:w-80 mt-8 lg:mt-0">
-                    <OrderSummary cart={cart} deliveryType={deliveryType} />
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// Componente de Detalhes do Pagamento PIX
-
-// --- COMPONENTE: PixPaymentDetails (Estático via CNPJ) ---
-
-// --- COMPONENTE: PixPaymentDetails (Estático via CNPJ) ---
-const PixPaymentDetails = ({ total, customerInfo, updateCustomer, cart, createOrder }) => {
-    const pixKeyFormatted = "61.982.423/0001-49";
-    const pixKeyRaw = "61982423000149";
-    const recipientName = "61.982.423 VICTORIA DA SILVA SPINOZA";
-    const qrImagePath = "/pix_cnpj_qr.png"; // será servido da pasta public/
-
-    const [copyStatus, setCopyStatus] = useState('Copiar Chave');
-    const [copyCodeStatus, setCopyCodeStatus] = useState('Copiar Código');
-    const [isSaving, setIsSaving] = useState(false);
-
-    const handleCopyKey = () => {
-        navigator.clipboard.writeText(pixKeyFormatted).then(() => {
-            setCopyStatus('Copiado!');
-            setTimeout(() => setCopyStatus('Copiar Chave'), 2500);
-        }).catch(() => setCopyStatus('Erro'));
-    };
-
-    const copiaCola = `PIX:${pixKeyRaw}|${recipientName}|R$${total.toFixed(2).replace('.',',')}`;
-
-    const handleCopyCode = () => {
-        navigator.clipboard.writeText(copiaCola).then(() => {
-            setCopyCodeStatus('Copiado!');
-            setTimeout(() => setCopyCodeStatus('Copiar Código'), 2500);
-        }).catch(() => setCopyCodeStatus('Erro'));
-    };
-
-    const openWhatsApp = () => {
-        const phone = ''; // opcional: seu número para receber mensagens
-        const message = encodeURIComponent(`Olá! Acabei de enviar o pagamento via PIX.\nPedido: *R$ ${total.toFixed(2).replace('.',',')}*\nNome: _${customerInfo.nome || '[seu nome]'}_\nVou enviar o comprovante aqui.`);
-        const waUrl = phone ? `https://wa.me/${phone}?text=${message}` : `https://wa.me/?text=${message}`;
-        window.open(waUrl, '_blank');
-    };
-
-    // Confirmação: cria o pedido no Firestore (opção B - só após o cliente clicar)
-    const handleConfirmPayment = async () => {
-        if (!customerInfo || !customerInfo.nome || !customerInfo.telefone || !customerInfo.rua || !customerInfo.numero || !customerInfo.bairro) {
-            alert('Por favor preencha seus dados (nome, telefone, rua, número e bairro) antes de confirmar o pagamento.');
-            return;
-        }
-        setIsSaving(true);
-        const orderId = await createOrder(cart, total); // createOrder está no escopo de App
-        setIsSaving(false);
-        if (orderId) {
-            alert('Pedido recebido! ID: ' + orderId + '. Agora envie o comprovante pelo WhatsApp se quiser.');
-            openWhatsApp();
-        }
-    };
-
-    return (
-        <div className="p-6 bg-white rounded-xl shadow-xl border border-green-400 mt-4 text-center">
-            <div className="flex items-center justify-center space-x-2 text-2xl font-bold text-green-700 mb-4">
-                <Zap className="w-6 h-6"/> Pagamento via Pix (CNPJ)
-            </div>
-            <p className="text-gray-700 mb-4">Escaneie o QR Code abaixo ou use a Chave Pix. Após o pagamento, clique em "Enviei o pagamento" para nos avisar.</p>
-
-            <div className="flex justify-center mb-4">
-                <img src={qrImagePath} alt="QR Code Pix CNPJ" className="w-48 h-48 border-4 border-green-500 rounded-lg shadow-lg object-contain" />
-            </div>
-
-            <div className="text-left mb-4 p-4 bg-green-50 rounded-lg">
-                <p className="text-sm font-semibold text-gray-800">Valor a Pagar:</p>
-                <p className="text-3xl font-extrabold text-green-700 mb-2">R$ {total.toFixed(2).replace(',',',')}</p>
-                
-                <p className="text-sm font-semibold text-gray-800">Beneficiário (Chave/CNPJ):</p>
-                <p className="text-base text-gray-600">{recipientName}</p>
-                
-                <p className="text-sm font-semibold text-gray-800 mt-2">Chave Pix (CNPJ):</p>
-                <p className="text-base text-gray-600">{pixKeyFormatted}</p>
-            </div>
-
-            <div className="text-left mb-4 p-4 bg-gray-50 rounded-lg">
-                <h4 className="font-semibold mb-2">Seus Dados para Entrega</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input placeholder="Nome completo" value={customerInfo.nome} onChange={(e)=>updateCustomer('nome', e.target.value)} className="p-2 border rounded-md"/>
-                    <input placeholder="Telefone (somente números)" value={customerInfo.telefone} onChange={(e)=>updateCustomer('telefone', e.target.value)} className="p-2 border rounded-md"/>
-                    <input placeholder="Rua" value={customerInfo.rua} onChange={(e)=>updateCustomer('rua', e.target.value)} className="p-2 border rounded-md"/>
-                    <input placeholder="Número" value={customerInfo.numero} onChange={(e)=>updateCustomer('numero', e.target.value)} className="p-2 border rounded-md"/>
-                    <input placeholder="Bairro" value={customerInfo.bairro} onChange={(e)=>updateCustomer('bairro', e.target.value)} className="p-2 border rounded-md"/>
-                    <input placeholder="Ponto de referência (opcional)" value={customerInfo.referencia} onChange={(e)=>updateCustomer('referencia', e.target.value)} className="p-2 border rounded-md"/>
-                </div>
-            </div>
-
-            <div className="flex gap-2 justify-center mb-3">
-                <button onClick={handleCopyKey} className={`px-4 py-2 rounded-md font-semibold shadow ${copyStatus==='Copiado!' ? 'bg-green-600 text-white' : 'bg-amber-700 text-white hover:bg-amber-800'}`}>
-                    <Copy className="w-4 h-4 inline mr-2"/> {copyStatus}
-                </button>
-                <button onClick={handleCopyCode} className={`px-4 py-2 rounded-md font-semibold shadow ${copyCodeStatus==='Copiado!' ? 'bg-green-600 text-white' : 'bg-amber-700 text-white hover:bg-amber-800'}`}>
-                    <Copy className="w-4 h-4 inline mr-2"/> {copyCodeStatus}
-                </button>
-                <button onClick={openWhatsApp} className="px-4 py-2 rounded-md font-semibold shadow bg-green-600 text-white hover:bg-green-700">
-                    <Instagram className="w-4 h-4 inline mr-2"/> Abrir WhatsApp
-                </button>
-            </div>
-
-            <div className="flex gap-2 justify-center">
-                <button onClick={handleConfirmPayment} disabled={isSaving} className="px-6 py-3 rounded-lg font-bold bg-amber-700 text-white hover:bg-amber-800">
-                    {isSaving ? 'Enviando...' : 'Enviei o pagamento'}
-                </button>
-            </div>
-
-            <p className="text-xs text-gray-500 mt-2">Observação: Este é um PIX estático via CNPJ. Você deve confirmar manualmente o recebimento no seu internet banking.</p>
-        </div>
-    );
-};
-// 3. Página de Pagamento
-const PaymentPage = ({
-    cart,
-    setPage,
-    deliveryType,
-    paymentMethod,
-    setPaymentMethod,
-    setCart,
-    customerInfo,
-    updateCustomer,
-    createOrder
-}) => {
-    
-    const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
-    const deliveryFee = deliveryType === 'delivery' ? DELIVERY_FEE : 0.00;
-    const totalOrderValue = subtotal + deliveryFee;
-
-    const handleFinalize = () => {
-        const selectedMethod = PAYMENT_METHODS.find(m => m.id === paymentMethod)?.name || 'Não Selecionado';
-        
-        console.log(`Pedido Finalizado!\n\nTipo: ${deliveryType === 'delivery' ? 'Entrega' : 'Levantamento'}\nPagamento: ${selectedMethod}`);
-        
-        // Simulação: Limpa o carrinho e volta ao menu
-        setCart([]);
-        setPage('menu'); 
-    };
-
-    return (
-        <div className="p-4 md:p-8 max-w-6xl mx-auto">
-            <CheckoutStepper step="payment" />
-            <div className="lg:flex lg:space-x-8">
-                
-                <div className="flex-grow space-y-6">
-                    <h3 className="text-2xl font-bold text-gray-800 mb-4">2. Selecione a Forma de Pagamento</h3>
-                    
-                    {/* Opções de Pagamento */}
-                    <div className="space-y-4">
-                        {PAYMENT_METHODS.map(method => {
-                            const Icon = method.icon;
-                            return (
-                                <label key={method.id} className={`block p-6 rounded-xl shadow-lg border-2 cursor-pointer transition duration-300 ${
-                                    paymentMethod === method.id ? 'border-amber-600 bg-amber-50' : 'border-gray-200 bg-white hover:shadow-xl'
-                                }`}>
-                                    <input 
-                                        type="radio" 
-                                        name="payment_option" 
-                                        value={method.id} 
-                                        checked={paymentMethod === method.id} 
-                                        onChange={() => setPaymentMethod(method.id)}
-                                        className="hidden"
-                                    />
-                                    <div className="flex items-center space-x-4">
-                                        <Icon className={`w-8 h-8 ${paymentMethod === method.id ? 'text-amber-600' : 'text-gray-500'}`} />
-                                        <div>
-                                            <span className="font-bold text-xl block">{method.name}</span>
-                                            <span className="text-sm text-gray-600">{method.details}</span>
-                                        </div>
-                                    </div>
-                                    {/* Campo extra para Dinheiro (Troco) */}
-                                    {paymentMethod === method.id && method.id === 'cash' && (
-                                        <div className="mt-4">
-                                            <input 
-                                                type="text" 
-                                                placeholder="Troco para (opcional)" 
-                                                className="w-full p-2 border rounded-md focus:ring-amber-500 focus:border-amber-500"
-                                            />
-                                        </div>
-                                    )}
-                                </label>
-                            );
-                        })}
-                    </div>
-                    
-                    {/* Detalhes do PIX - Somente aparece se o PIX for selecionado */}
-                    {paymentMethod === 'pix' && <PixPaymentDetails total={totalOrderValue} customerInfo={customerInfo} updateCustomer={updateCustomer} cart={cart} createOrder={createOrder} />}
-
-
-                    <button 
-                        onClick={handleFinalize} 
-                        disabled={!paymentMethod || cart.length === 0}
-                        className={`w-full py-3 rounded-lg font-bold text-lg transition duration-200 shadow-xl mt-6 ${
-                            paymentMethod && cart.length > 0
-                                ? 'bg-green-600 text-white hover:bg-green-700'
-                                : 'bg-gray-400 text-gray-700 cursor-not-allowed'
-                        }`}
-                    >
-                        {paymentMethod ? 'Confirmar Pedido e Pagar (Simulação)' : 'Selecione um método de pagamento'}
-                    </button>
-                    <button 
-                        onClick={() => setPage('delivery')} 
-                        className="w-full bg-gray-200 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-300 transition duration-200"
-                    >
-                        <ChevronRight className="w-5 h-5 transform rotate-180 mr-1 inline-block"/> Voltar à Entrega
-                    </button>
-
-                </div>
-                
-                {/* Resumo do Pedido */}
-                <div className="lg:w-80 mt-8 lg:mt-0">
-                    <OrderSummary cart={cart} deliveryType={deliveryType} />
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// 4. Página "Sobre Nós" (Simples)
-const AboutPage = ({ setPage }) => (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto text-center py-20 bg-white rounded-xl shadow-lg">
-        <h2 className="text-4xl font-extrabold text-amber-700 mb-4">A Nossa História</h2>
-        <p className="text-lg text-gray-700 mb-8">
-            Nascida da paixão em equilibrar o doce e o salgado, a Doce É Ser é mais do que uma loja: é um ponto de encontro para quem ama a culinária artesanal. Trabalhamos com ingredientes frescos e receitas exclusivas para garantir que cada mordida seja uma experiência inesquecível.
-        </p>
-        <div className="flex justify-center space-x-6 text-gray-500">
-            <div className="flex items-center"><MapPin className="w-5 h-5 mr-2"/> Rua Servidão Unidos 478</div>
-            <div className="flex items-center"><Clock className="w-5 h-5 mr-2"/> Seg - Sáb: 10h às 20h</div>
-        </div>
-        
-        {/* Créditos Adicionados */}
-        <p className="mt-8 text-sm text-gray-500">
-            Desenvolvido por <span className="font-bold text-amber-600">@DivulgaJà</span>
-        </p>
-        
-        <button 
-            onClick={() => setPage('menu')} 
-            className="mt-10 bg-amber-700 text-white py-3 px-8 rounded-lg font-bold hover:bg-amber-800 transition duration-200 shadow-md"
-        >
-            Ver Menu
-        </button>
+      <div className="mt-4 flex gap-2">
+        <button onClick={()=>setPage('payment')} className="bg-amber-700 text-white px-4 py-2 rounded">Prosseguir para Pagamento</button>
+        <button onClick={()=>setPage('cart')} className="bg-gray-200 px-4 py-2 rounded">Voltar</button>
+      </div>
     </div>
-);
+  );
 
+  const PaymentPage = (
+    <div className="p-4 md:p-8 max-w-6xl mx-auto">
+      <h3 className="text-2xl font-bold mb-4">Pagamento</h3>
+      <div className="grid md:grid-cols-2 gap-6">
+        <div>
+          <div className="space-y-3">
+            {PAYMENT_METHODS.map(m => (
+              <label key={m.id} className={`block p-4 rounded border ${paymentMethod===m.id ? 'border-amber-600 bg-amber-50' : 'bg-white'}`}>
+                <input type="radio" checked={paymentMethod===m.id} onChange={()=>setPaymentMethod(m.id)} className="hidden"/>
+                <div className="font-bold">{m.name}</div>
+                <div className="text-sm text-gray-600">{m.details}</div>
+              </label>
+            ))}
+          </div>
 
-// 5. NOVA Página de Galeria (Instagram)
-const GalleryPage = () => {
-    
-    // Simulação do componente de post do Instagram (usando o link real)
-    const InstagramEmbedPlaceholder = ({ item }) => {
-        // Gera cores diferentes baseadas no ID para dar variedade visual
-        const colors = [
-            { bg: 'bg-yellow-100', text: 'text-amber-800', border: 'border-amber-500' },
-            { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-500' },
-            { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-500' },
-            { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-500' },
-            { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-500' },
-            { bg: 'bg-pink-100', text: 'text-pink-800', border: 'border-pink-500' },
-        ];
-        const { bg, text, border } = colors[(item.id - 1) % colors.length];
-
-        return (
-            <a 
-                href={item.url} 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="relative overflow-hidden rounded-xl shadow-lg bg-white transition duration-300 transform hover:scale-[1.03] border-4 border-dashed cursor-pointer block"
-            >
-                <div className={`w-full h-80 flex items-center justify-center text-center p-4 ${bg} ${border}`}>
-                    <div className={`p-4 bg-white bg-opacity-90 rounded-lg font-bold shadow-xl ${text}`}>
-                        <Instagram className={`w-8 h-8 mx-auto mb-2 text-pink-600`}/>
-                        <p className="text-lg">Post: {item.type}</p>
-                        <p className="text-xs font-normal mt-1 text-gray-600">
-                            (Link Real: Clique para ver no Instagram)
-                        </p>
-                        <p className="text-xs font-normal mt-1 text-amber-700 break-words max-w-[200px] mx-auto opacity-70">
-                            {item.url.substring(0, 40)}...
-                        </p>
-                    </div>
+          {paymentMethod === 'pix' && (
+            <div className="mt-4">
+              <div className="bg-white p-4 rounded shadow">
+                <div className="text-center font-bold text-green-700 mb-3">Pagamento via PIX</div>
+                <div className="text-sm">Beneficiário: Doce É Ser Tapera</div>
+                <div className="text-sm">Chave (CNPJ): 61.982.423/0001-49</div>
+                <div className="text-xl font-bold mt-2">Valor: {formatBR(total)}</div>
+                <div className="mt-4">
+                  <input placeholder="Nome" value={customerInfo.nome} onChange={(e)=>setCustomerInfo(prev=>({...prev, nome: e.target.value}))} className="w-full p-2 border rounded mb-2"/>
+                  <input placeholder="Telefone" value={customerInfo.telefone} onChange={(e)=>setCustomerInfo(prev=>({...prev, telefone: e.target.value}))} className="w-full p-2 border rounded mb-2"/>
+                  <input placeholder="Rua" value={customerInfo.rua} onChange={(e)=>setCustomerInfo(prev=>({...prev, rua: e.target.value}))} className="w-full p-2 border rounded mb-2"/>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input placeholder="Número" value={customerInfo.numero} onChange={(e)=>setCustomerInfo(prev=>({...prev, numero: e.target.value}))} className="p-2 border rounded"/>
+                    <input placeholder="Bairro" value={customerInfo.bairro} onChange={(e)=>setCustomerInfo(prev=>({...prev, bairro: e.target.value}))} className="p-2 border rounded"/>
+                  </div>
                 </div>
-            </a>
-        );
-    };
-    
-    return (
-        <div className="p-4 md:p-8 max-w-7xl mx-auto">
-            <h2 className="text-4xl font-extrabold text-amber-700 mb-4 flex items-center">
-                <Camera className="w-8 h-8 mr-3"/> Galeria Doce É Ser
-            </h2>
-            <p className="text-lg text-gray-700 mb-8 max-w-3xl">
-                Confira os posts mais recentes dos nossos produtos. Clique em qualquer card para ser redirecionado ao post real no Instagram!
-            </p>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {INSTAGRAM_POSTS.map(item => (
-                    <InstagramEmbedPlaceholder key={item.id} item={item} />
-                ))}
+                <div className="mt-4 flex gap-2">
+                  <button onClick={handleCreateOrder} className="w-full py-2 rounded bg-green-600 text-white">Enviei o pagamento</button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">Tempo estimado: {ETA_TEXT}</p>
+              </div>
             </div>
-            
-            <div className="mt-12 text-center">
-                <a 
-                    href="https://www.instagram.com/doceeser" // URL ATUALIZADA PARA O PERFIL DO USUÁRIO
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center px-8 py-3 border border-transparent text-base font-bold rounded-full shadow-xl text-white bg-pink-600 hover:bg-pink-700 transition duration-300"
-                >
-                    <Instagram className="w-5 h-5 mr-2"/>
-                    Acompanhe-nos no Instagram
-                </a>
-            </div>
+          )}
         </div>
+
+        <div>
+          <OrderSummary cart={cart} deliveryType={deliveryType} />
+        </div>
+      </div>
+    </div>
+  );
+
+  const AboutPage = (
+    <div className="p-8 max-w-4xl mx-auto text-center">
+      <h2 className="text-3xl font-bold text-amber-700">Doce É Ser</h2>
+      <p className="mt-4 text-gray-600">Somos uma confeitaria... (edite como quiser)</p>
+      <button onClick={()=>setPage('menu')} className="mt-6 bg-amber-700 text-white px-4 py-2 rounded">Ver cardápio</button>
+    </div>
+  );
+
+  /* ------------- Render logic ------------- */
+  // If path is /pedido/:id and we set page 'tracking', we extract id from path
+  const currentPath = typeof window !== 'undefined' ? window.location.pathname : '/';
+  const trackedOrderIdFromPath = currentPath.startsWith('/pedido/') ? currentPath.replace('/pedido/', '').split('/')[0] : null;
+
+  if (page === 'tracking' && trackedOrderIdFromPath) {
+    // Show tracking page and, if lastCreatedOrderId present, show confirmation header
+    return (
+      <div>
+        {/* Optional small confirmation banner if we just created the order */}
+        {lastCreatedOrderId === trackedOrderIdFromPath && (
+          <div className="bg-green-600 text-white p-4 text-center">
+            <div className="max-w-3xl mx-auto">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-lg font-bold">Pedido enviado com sucesso!</div>
+                  <div className="text-sm">Número do pedido: <strong>{trackedOrderIdFromPath}</strong></div>
+                </div>
+                <div className="text-right">
+                  <div>{ETA_TEXT}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <OrderTrackingPage orderId={trackedOrderIdFromPath} />
+      </div>
     );
-};
+  }
 
+  if (page === 'meus-pedidos') {
+    return <MyOrdersPage />;
+  }
 
-// --- COMPONENTE PRINCIPAL ---
-const App = () => {
-  // --- INFORMAÇÕES DO CLIENTE (preenchidas antes do pagamento) ---
-  const [customerInfo, setCustomerInfo] = useState({
-      nome: '',
-      telefone: '',
-      rua: '',
-      numero: '',
-      bairro: '',
-      referencia: ''
-  });
-
-  const updateCustomer = (field, value) => {
-      setCustomerInfo(prev => ({ ...prev, [field]: value }));
-  };
-
-  // Cria um pedido NO FIRESTORE após o cliente confirmar que pagou (Opção B)
-  const createOrder = async (cartItems, total) => {
-      if (!db) {
-          alert('Banco de dados não está configurado. Pedido não salvo.');
-          return;
-      }
-      try {
-          const pedidosCol = collection(db, 'pedidos');
-          const docRef = await addDoc(pedidosCol, {
-              itens: cartItems,
-              total: total,
-              status: 'pago',
-              customer: customerInfo,
-              criadoEm: serverTimestamp()
-          });
-          console.log('Pedido criado com ID:', docRef.id);
-          // Limpa o carrinho
-          setCart([]);
-          // Opcional: retorna id do pedido
-          return docRef.id;
-      } catch (e) {
-          console.error('Erro ao criar pedido:', e);
-          alert('Erro ao salvar pedido. Tente novamente.');
-      }
-  };
-
-  const [page, setPage] = useState('menu'); 
-  const [cart, setCart] = useState([]);
-  const [activeCategory, setActiveCategory] = useState('all'); 
-  const [deliveryType, setDeliveryType] = useState('delivery'); 
-  const [paymentMethod, setPaymentMethod] = useState(null); 
-  
-  // Estados para o Modal de Customização do Açaí
-  const [isAcaiModalOpen, setIsAcaiModalOpen] = useState(false);
-  const [acaiProductToCustomize, setAcaiProductToCustomize] = useState(null);
-
-  const [isAuthReady, setIsAuthReady] = useState(false);
-  const [userId, setUserId] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Função para abrir o modal de customização do Açaí
-  const openAcaiModal = (product) => {
-      setAcaiProductToCustomize(product);
-      setIsAcaiModalOpen(true);
-  };
-  
-  // Função para fechar o modal
-  const closeAcaiModal = () => {
-      setIsAcaiModalOpen(false);
-      setAcaiProductToCustomize(null);
-  };
-
-  const cartItemCount = useMemo(() => cart.reduce((total, item) => total + item.quantity, 0), [cart]);
-
-  // Efeito 1: Inicialização do Firebase e Autenticação
-  useEffect(() => {
-    if (!auth) {
-        setIsAuthReady(true);
-        setIsLoading(false);
-        console.warn("Firebase/Firestore não configurado. Os dados do carrinho NÃO serão persistidos.");
-        return;
-    }
-
-    const signInUser = async () => {
-        try {
-            const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-            
-            if (initialToken) {
-                await signInWithCustomToken(auth, initialToken);
-            } else {
-                await signInAnonymously(auth);
-            }
-        } catch (error) {
-            console.error("Erro na autenticação do Firebase:", error);
-            await signInAnonymously(auth);
-        }
-    };
-
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-        if (user) {
-            setUserId(user.uid);
-        } else {
-            signInUser().then(() => {
-                setIsAuthReady(true);
-            });
-        }
-        setIsAuthReady(true);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-
-  // Efeito 2: Carregar o Carrinho (READ-ONLY)
-  useEffect(() => {
-    if (!isAuthReady || !userId || !db) return;
-
-    const cartRef = getCartDocRef(userId);
-
-    const unsubscribe = onSnapshot(cartRef, (docSnap) => {
-        if (docSnap.exists() && docSnap.data() && docSnap.data().items) {
-            setCart(docSnap.data().items);
-        } else {
-            setCart([]); 
-        }
-        setIsLoading(false);
-    }, (error) => {
-        console.error("Erro ao carregar o carrinho em tempo real:", error);
-        setIsLoading(false); 
-    });
-
-    return () => {
-        unsubscribe();
-    };
-
-  }, [isAuthReady, userId]); 
-  
-  // Efeito 3: Guardar o Carrinho (WRITE-ONLY com debounce)
-  useEffect(() => {
-    if (!isAuthReady || !userId || !db || isLoading) return; 
-
-    const saveTimeout = setTimeout(() => {
-        saveCartToFirestore(userId, cart);
-    }, 500);
-
-    return () => {
-        clearTimeout(saveTimeout);
-    };
-
-  }, [cart, isAuthReady, userId, isLoading]);
-
-
-  
-  // Renderização da Página
-  const renderPage = () => {
-    if (isLoading) {
-        return (
-             <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
-                <Loader2 className="w-16 h-16 text-amber-500 animate-spin"/>
-                <p className="mt-4 text-xl font-semibold text-gray-700">A carregar dados da loja...</p>
-                {userId && <p className="text-sm text-gray-400 mt-2">ID do Utilizador: {userId}</p>}
-            </div>
-        );
-    }
-    
-    switch (page) {
-      case 'menu':
-        return <MenuPage 
-            setCart={setCart} 
-            activeCategory={activeCategory} 
-            setActiveCategory={setActiveCategory} 
-            openAcaiModal={openAcaiModal} // Passa a função do modal
-        />;
-      case 'cart':
-        return <CartPage cart={cart} setCart={setCart} setPage={setPage} />;
-      case 'delivery':
-        if (cart.length === 0) { setPage('menu'); return null; }
-        return <DeliveryPage cart={cart} setPage={setPage} deliveryType={deliveryType} setDeliveryType={setDeliveryType} />;
-      case 'payment':
-        if (cart.length === 0) { setPage('menu'); return null; }
-        return (
-        <PaymentPage cart={cart} setPage={setPage} deliveryType={deliveryType}
-            paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} setCart={setCart}
-            customerInfo={customerInfo} updateCustomer={updateCustomer} createOrder={createOrder}
-        />
-    );;
-      case 'about':
-        return <AboutPage setPage={setPage} />;
-      case 'gallery':
-        return <GalleryPage />; // Nova página de Galeria
-      default:
-        return <MenuPage 
-            setCart={setCart} 
-            activeCategory={activeCategory} 
-            setActiveCategory={setActiveCategory} 
-            openAcaiModal={openAcaiModal}
-        />;
-    }
-  };
-
+  // default app layout
   return (
-    <div className="min-h-screen bg-gray-50 font-sans">
-      
-      {/* Navbar */}
-      <header className="sticky top-0 z-50 bg-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-20">
-            
-            {/* Logo e Nome */}
-            <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setPage('menu')}>
-              <Cake className="w-8 h-8 text-amber-500" />
-              <Heart className="w-8 h-8 text-amber-500" />
-              <IceCream className="w-8 h-8 text-amber-500" />
-              <h1 className="text-2xl font-extrabold text-gray-900 hidden sm:block">Doce É Ser</h1>
-              <h1 className="text-xl font-extrabold text-gray-900 block sm:hidden">Doce É Ser</h1>
-            </div>
-
-            {/* Navegação */}
-            <nav className="hidden md:flex space-x-6">
-              <button onClick={() => setPage('menu')} className={`text-lg font-medium transition duration-150 p-2 rounded-lg ${page.includes('menu') ? 'text-amber-700 bg-amber-100' : 'text-gray-600 hover:text-amber-700'}`}>
-                <Home className="w-5 h-5 inline mr-1"/> Menu
-              </button>
-              {/* Botão Galeria */}
-              <button onClick={() => setPage('gallery')} className={`text-lg font-medium transition duration-150 p-2 rounded-lg ${page === 'gallery' ? 'text-amber-700 bg-amber-100' : 'text-gray-600 hover:text-amber-700'}`}>
-                <Camera className="w-5 h-5 inline mr-1"/> Galeria
-              </button>
-              {/* Botão Sobre Nós */}
-              <button onClick={() => setPage('about')} className={`text-lg font-medium transition duration-150 p-2 rounded-lg ${page === 'about' ? 'text-amber-700 bg-amber-100' : 'text-gray-600 hover:text-amber-700'}`}>
-                Sobre Nós
-              </button>
-            </nav>
-
-            {/* Botão do Carrinho */}
-            <button 
-              onClick={() => setPage('cart')}
-              className="relative p-3 bg-amber-700 text-white rounded-full shadow-lg hover:bg-amber-800 transition duration-150"
-            >
-              <ShoppingCart className="w-6 h-6" />
-              {cartItemCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-6 h-6 flex items-center justify-center text-xs font-bold bg-red-600 rounded-full border-2 border-white">
-                  {cartItemCount}
-                </span>
-              )}
+    <div className="min-h-screen bg-gray-50">
+      <header className="sticky top-0 bg-white shadow p-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={()=>{ setPage('menu'); window.history.pushState({}, '', '/'); }}>
+            <Cake className="w-6 h-6 text-amber-500" />
+            <h1 className="font-bold">Doce É Ser</h1>
+          </div>
+          <nav className="hidden md:flex gap-4">
+            <button onClick={()=>{ setPage('menu'); window.history.pushState({}, '', '/'); }} className={`px-3 py-1 rounded ${page==='menu' ? 'bg-amber-100 text-amber-700' : ''}`}>Menu</button>
+            <button onClick={()=>{ setPage('about'); window.history.pushState({}, '', '/about'); }} className={`px-3 py-1 rounded ${page==='about' ? 'bg-amber-100 text-amber-700' : ''}`}>Sobre</button>
+            <button onClick={()=>{ setPage('meus-pedidos'); window.history.pushState({}, '', '/meus-pedidos'); }} className="px-3 py-1 rounded">Meus pedidos</button>
+          </nav>
+          <div className="flex items-center gap-3">
+            <button onClick={()=>{ setPage('cart'); window.history.pushState({}, '', '/cart'); }} className="relative bg-amber-700 text-white p-3 rounded-full">
+              <ShoppingCart className="w-5 h-5"/>
+              {cartItemCount > 0 && <span className="absolute -top-1 -right-1 w-5 h-5 text-xs rounded-full bg-red-600 flex items-center justify-center border-2 border-white">{cartItemCount}</span>}
             </button>
           </div>
         </div>
       </header>
 
-      {/* Conteúdo Principal */}
       <main className="max-w-7xl mx-auto pb-12">
-        {renderPage()}
+        {page === 'menu' && MenuPage}
+        {page === 'cart' && CartPage}
+        {page === 'delivery' && DeliveryPage}
+        {page === 'payment' && PaymentPage}
+        {page === 'about' && AboutPage}
       </main>
-      
-      {/* Modal de Customização do Açaí */}
-      {isAcaiModalOpen && acaiProductToCustomize && (
-          <AcaiCustomizationModal 
-              product={acaiProductToCustomize} 
-              closeModal={closeAcaiModal} 
-              setCart={setCart}
-          />
+
+      {isAcaiModalOpen && acaiProduct && (
+        <AcaiModal
+          product={acaiProduct}
+          onClose={closeAcaiModal}
+          onAdd={(selectedToppings) => {
+            const priceExtra = selectedToppings.reduce((s, n) => s + (ACAI_TOPPINGS.find(t=>t.name===n)?.price || 0), 0);
+            const item = {
+              id: acaiProduct.id,
+              uniqueId: `acai-${Date.now()}`,
+              name: acaiProduct.name,
+              toppings: selectedToppings,
+              price: (ACAI_BASE_PRICE + priceExtra),
+              quantity: 1,
+              isCustom: true
+            };
+            addCustomAcai(item);
+          }}
+        />
       )}
 
-      {/* Rodapé (Exibe o userId para fins de debug e colaboração) */}
-      <footer className="w-full bg-gray-800 text-white p-4 text-center text-sm">
-        <p>Desenvolvido por <span className="font-bold text-amber-400">@DivulgaJà</span> | React, Tailwind CSS e Persistência de Dados via Firestore.</p>
-        {userId && (
-            <p className="mt-1 text-xs text-gray-400">ID de Sessão (Firestore): {userId}</p>
-        )}
+      <footer className="bg-gray-800 text-white p-4 text-center">
+        <div>Desenvolvido por @DivulgaJà</div>
       </footer>
+    </div>
+  );
+};
 
+/* ------------- Acai Modal Component ------------- */
+const AcaiModal = ({ product, onClose, onAdd }) => {
+  const [selected, setSelected] = useState([]);
+  const toggle = (name) => setSelected(prev => prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]);
+  const total = ACAI_BASE_PRICE + selected.reduce((s, n) => s + (ACAI_TOPPINGS.find(t=>t.name===n)?.price || 0), 0);
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl w-full max-w-lg p-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center">
+          <h3 className="text-xl font-bold">{product.name}</h3>
+          <button onClick={onClose}><X /></button>
+        </div>
+        <p className="text-sm text-gray-600 mt-2">Selecione adicionais:</p>
+        <div className="mt-4 space-y-2">
+          {ACAI_TOPPINGS.map(t => {
+            const active = selected.includes(t.name);
+            return (
+              <div key={t.name} onClick={()=>toggle(t.name)} className={`p-3 rounded border cursor-pointer ${active ? 'bg-amber-50 border-amber-300' : 'bg-white'}`}>
+                <div className="flex justify-between items-center">
+                  <div>{t.name}</div>
+                  <div className="text-sm text-gray-600">{formatBR(t.price)}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 flex justify-between items-center">
+          <div className="font-bold">Total: {formatBR(total)}</div>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 rounded border">Cancelar</button>
+            <button onClick={()=>onAdd(selected)} className="px-4 py-2 rounded bg-amber-700 text-white">Adicionar</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
