@@ -20,22 +20,160 @@ const ACAI_ID = 18;
 const ACAI_BASE_PRICE = 17.9;
 const ETA_TEXT = "20–35 min"; // tempo estimado fornecido
 
+// --- DADOS ADICIONAIS AÇAÍ ---
 const ACAI_TOPPINGS = [
   { name: "Banana", price: 0.01 },
-  { name: "Morango", price: 2.0 },
-  { name: "Leite Ninho", price: 1.0 },
+  { name: "Morango", price: 2.00 },
+  { name: "Leite Ninho", price: 1.00 },
   { name: "Leite Condensado", price: 0.01 },
-  { name: "Creme de Ninho", price: 1.0 },
-  { name: "Nutella", price: 3.0 },
-  { name: "Amendoim", price: 1.0 },
+  { name: "Creme de Ninho", price: 1.00 },
+  { name: "Nutella", price: 3.00 },
+  { name: "Amendoim", price: 1.00 },
 ];
 
+// ID e preço base do açaí
+const ACAI_ID = 18;
+const ACAI_BASE_PRICE = 17.90;
+
+// --- LISTA COMPLETA DE PRODUTOS ---
 const initialProducts = [
-  { id: 9, name: "Red velvet com Ninho e Morangos", price: 15.90, category: 'bolos', description: "Massa aveludada...", imageUrl: "https://i.imgur.com/3UDWhLR.png" },
-  { id: 2, name: "Bolo Cenoura com chocolate", price: 15.90, category: 'bolos', description: "Mini vulcão de cenoura...", imageUrl: "https://i.imgur.com/aaUdL2b.png" },
-  { id: ACAI_ID, name: "Copo de Açaí 250ml", price: ACAI_BASE_PRICE, category: 'acai', description: "Copo de Açaí cremoso...", imageUrl: "https://i.imgur.com/OrErP8N.png" },
-  { id: 20, name: "Brownie De Ninho e Nutella", price: 11.90, category: 'brownie', description: "Brownie gourmet...", imageUrl: "https://i.imgur.com/vWdYZ8K.png" },
-  { id: 6, name: "Empada de Camarão e Requeijão", price: 12.00, category: 'salgado', description: "Camarão Cremoso...", imageUrl: "https://i.imgur.com/rV18DkJ.png" },
+  // Categoria BOLOS
+  {
+    id: 9,
+    name: "Red velvet com Ninho e Morangos",
+    price: 15.90,
+    category: 'bolos',
+    description: "Massa aveludada e macia, coberta com creme de leite Ninho cremoso e morangos fresquinhos no topo. Uma combinação elegante.",
+    imageUrl: "https://i.imgur.com/3UDWhLR.png"
+  },
+  {
+    id: 2,
+    name: "Bolo Cenoura com chocolate",
+    price: 15.90,
+    category: 'bolos',
+    description: "Mini vulcão de cenoura: uma massa fofinha e úmida de bolo de cenoura, recheada com explosão de calda cremosa de chocolate.",
+    imageUrl: "https://i.imgur.com/aaUdL2b.png"
+  },
+  {
+    id: 10,
+    name: "Chocolate com Morangos",
+    price: 15.90,
+    category: 'bolos',
+    description: "Bolo fofinho de chocolate, cobertura cremosa 50% e morangos fresquinhos.",
+    imageUrl: "https://i.imgur.com/MMbQohl.png"
+  },
+  {
+    id: 13,
+    name: "Chocolatudo!!!",
+    price: 15.90,
+    category: 'bolos',
+    description: "Bolo chocolatudo com creme de chocolate 50% e granulados.",
+    imageUrl: "https://i.imgur.com/3Hva4Df.png"
+  },
+  {
+    id: 16,
+    name: "Bolo de Ferreiro com Nutella",
+    price: 16.90,
+    category: 'bolos',
+    description: "Bolo de chocolate com amendoim, Nutella e chocolate 50%.",
+    imageUrl: "https://i.imgur.com/OamNqov.png"
+  },
+
+  // Categoria COPO DA FELICIDADE
+  {
+    id: 17,
+    name: "Copo Oreo com Nutella",
+    price: 24.90,
+    category: 'copo_felicidade',
+    description: "Camadas de creme de Ninho, Oreo e Nutella.",
+    imageUrl: "https://i.imgur.com/1EZRMVl.png"
+  },
+  {
+    id: 24,
+    name: "Copo Maracujá com Brownie",
+    price: 24.90,
+    category: 'copo_felicidade',
+    description: "Creme de maracujá, chocolate 50% e pedaços de brownie.",
+    imageUrl: "https://i.imgur.com/PypEwAz.png"
+  },
+  {
+    id: 25,
+    name: "Copo Brownie Dois Amores",
+    price: 22.90,
+    category: 'copo_felicidade',
+    description: "Dois amores + brownie macio em camadas.",
+    imageUrl: "https://i.imgur.com/mMQtXDB.png"
+  },
+  {
+    id: 26,
+    name: "Copo Encanto de Ninho e Morangos",
+    price: 22.90,
+    category: 'copo_felicidade',
+    description: "Camadas de creme de Ninho e morangos frescos.",
+    imageUrl: "https://i.imgur.com/EgFhhwL.png"
+  },
+  {
+    id: 27,
+    name: "Copo de Brownie com Ferreiro e Nutella",
+    price: 26.90,
+    category: 'copo_felicidade',
+    description: "Brownie, Ferrero, chocolate 50% e Nutella.",
+    imageUrl: "https://i.imgur.com/t6xeVDf.png"
+  },
+
+  // Categoria BROWNIES
+  {
+    id: 20,
+    name: "Brownie De Ninho e Nutella",
+    price: 11.90,
+    category: 'brownie',
+    description: "Brownie com creme de Ninho e Nutella.",
+    imageUrl: "https://i.imgur.com/vWdYZ8K.png"
+  },
+  {
+    id: 21,
+    name: "Brownie Recheado com Nutella e Morangos",
+    price: 22.90,
+    category: 'brownie',
+    description: "Brownie recheado com creme de Ninho, Nutella e morangos.",
+    imageUrl: "https://i.imgur.com/P1pprjF.png"
+  },
+  {
+    id: 22,
+    name: "Brownie Ferreiro com Nutella",
+    price: 11.90,
+    category: 'brownie',
+    description: "Brownie com Nutella e amendoim torrado.",
+    imageUrl: "https://i.imgur.com/rmp3LtH.png"
+  },
+  {
+    id: 23,
+    name: "Brownie Duo com Oreo",
+    price: 11.90,
+    category: 'brownie',
+    description: "Brownie com cobertura de chocolate e pedaços de Oreo.",
+    imageUrl: "https://i.imgur.com/8IbcWWj.png"
+  },
+
+  // Categoria AÇAÍ
+  {
+    id: ACAI_ID,
+    name: "Copo de Açaí 250ml",
+    price: ACAI_BASE_PRICE,
+    category: 'acai',
+    description: "Copo de Açaí cremoso — escolha seus acompanhamentos.",
+    imageUrl: "https://i.imgur.com/OrErP8N.png"
+  },
+
+  // Categoria SALGADOS
+  {
+    id: 6,
+    name: "Empada de Camarão e Requeijão",
+    price: 12.00,
+    category: 'salgado',
+    description: "Camarão cremoso com requeijão. Feito na marmitinha.",
+    imageUrl: "https://i.imgur.com/rV18DkJ.png"
+  }
 ];
 
 const categories = {
